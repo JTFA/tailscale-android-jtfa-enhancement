@@ -39,6 +39,7 @@ open class IPNService : VpnService(), libtailscale.IPNService {
     super.onCreate()
     // grab app to make sure it initializes
     app = App.get()
+    instance = this
 
     NetworkChangeCallback.setUnderlyingNetworkListener { network ->
       updateUnderlyingNetwork(network)
@@ -115,6 +116,7 @@ open class IPNService : VpnService(), libtailscale.IPNService {
 
   override fun onDestroy() {
     NetworkChangeCallback.setUnderlyingNetworkListener(null)
+    if (instance === this) instance = null
     close()
     updateVpnStatus(false)
     super.onDestroy()
@@ -252,6 +254,9 @@ open class IPNService : VpnService(), libtailscale.IPNService {
   }
 
   companion object {
+    @Volatile var instance: IPNService? = null
+      private set
+
     const val ACTION_START_VPN = "com.tailscale.ipn.START_VPN"
     const val ACTION_STOP_VPN = "com.tailscale.ipn.STOP_VPN"
     const val ACTION_RESTART_VPN = "com.tailscale.ipn.RESTART_VPN"

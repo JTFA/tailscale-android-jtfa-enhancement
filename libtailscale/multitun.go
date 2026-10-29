@@ -207,7 +207,20 @@ func (d *multiTUN) readFrom(dev *tunDevice) {
 	for {
 		select {
 		case r := <-d.reads:
-			n, err := dev.dev.Read(r.slab, r.packets)
+			var n int
+			var err error
+			for {
+				n, err = dev.dev.Read(r.slab, r.packets)
+				if err != nil || n == 0 {
+					break
+				}
+				n = filterDNSPackets(dev.dev, r.slab, r.packets[:n])
+				if n > 0 {
+					break
+				}
+				// Every packet in the batch was answered locally; read again so
+				// callers never observe an empty read.
+			}
 			stop := false
 			if err != nil {
 				select {
@@ -225,6 +238,29 @@ func (d *multiTUN) readFrom(dev *tunDevice) {
 			return
 		}
 	}
+}
+
+// filterDNSPackets lets the ad blocking engine answer blocked DNS queries from
+// the tunnel itself. It returns the number of packets that should be delivered
+// to the rest of the stack.
+func filterDNSPackets(dev tun.Device, slab []byte, packets []tun.ReadPacket) int {
+	kept := 0
+	for _, p := range packets {
+		end := p.Offset + p.Size
+		if p.Offset < 0 || p.Size < 0 || end > len(slab) {
+			continue
+		}
+		reply := adBlock.handlePacket(slab[p.Offset:end])
+		if reply == nil {
+			packets[kept] = p
+			kept++
+			continue
+		}
+		if _, err := dev.Write([][]byte{reply}, 0); err != nil {
+			log.Printf("adblock: writing reply: %v", err)
+		}
+	}
+	return kept
 }
 
 func (d *multiTUN) runDevice(dev *tunDevice) {

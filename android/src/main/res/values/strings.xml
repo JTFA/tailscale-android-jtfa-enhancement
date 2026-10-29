@@ -410,4 +410,53 @@
     <string name="copy_magic_dns_address">Copy MagicDNS hostname</string>
     <string name="copy_ipv4_address">Copy IPv4</string>
     <string name="copy_ipv6_address">Copy IPv6</string>
+
+    <!-- Bottom navigation tabs -->
+    <string name="tab_tailscale">Tailscale</string>
+    <string name="tab_adblock">AdBlock</string>
+    <string name="tab_proxy">Every Proxy</string>
+
+    <!-- AdBlock tab -->
+    <string name="not_connected_adblock">Ad blocking only runs while the Tailscale tunnel is up. Connect to enable it.</string>
+    <string name="adblock_ad_blocking">Ad blocking</string>
+    <string name="adblock_active_while_connected">Active while connected</string>
+    <string name="adblock_today">Today</string>
+    <string name="adblock_total">Total</string>
+    <string name="adblock_apps">Apps</string>
+    <string name="adblock_dns_note_title">DNS-level filtering</string>
+    <string name="adblock_dns_note">Rules are applied to DNS lookups inside the tunnel. Domain rules only: no HTTPS URL inspection and no in-page element hiding.</string>
+    <string name="adblock_app_filtering">App filtering</string>
+    <string name="adblock_app_filtering_desc">Choose which apps are filtered</string>
+    <string name="adblock_app_outside_tunnel">Outside the tunnel</string>
+    <string name="adblock_add_to_tunnel">Add to tunnel</string>
+    <string name="adblock_rules_credit">Rule list: StevenBlack/hosts (MIT)</string>
+
+    <!-- Every Proxy tab -->
+    <string name="not_connected_proxy">Every Proxy only runs while the Tailscale tunnel is up. Connect to enable it.</string>
+    <string name="proxy_server">Proxy server</string>
+    <string name="proxy_status_off">Off</string>
+    <string name="proxy_status_stopped">Stopped</string>
+    <string name="proxy_status_running">Running</string>
+    <string name="proxy_http">HTTP / HTTPS</string>
+    <string name="proxy_socks">SOCKS4 / SOCKS5</string>
+    <string name="proxy_pac">PAC server</string>
+    <string name="proxy_egress">Egress</string>
+    <string name="proxy_via_tailscale">Via Tailscale</string>
+    <string name="proxy_direct">Direct</string>
+    <string name="proxy_auth">Authentication</string>
+    <string name="proxy_auth_none">None</string>
+    <string name="proxy_ports_title">Ports</string>
+    <string name="proxy_apply">Apply</string>
+    <string name="proxy_clients_current">Active</string>
+    <string name="proxy_clients_max">Max</string>
+    <string name="proxy_clients_total">Total</string>
+    <string name="proxy_bytes_up">Received</string>
+    <string name="proxy_bytes_down">Sent</string>
+    <string name="proxy_expose_tailnet">Expose on tailnet</string>
+    <string name="proxy_expose_tailnet_desc">Listen on all interfaces, including the Tailscale address.</string>
+    <string name="proxy_hosts">Addresses</string>
+    <string name="proxy_auth_title">Authentication</string>
+    <string name="proxy_auth_desc">Optional. HTTP Basic for the HTTP proxy and RFC 1929 for SOCKS5.</string>
+    <string name="proxy_auth_username">Username</string>
+    <string name="proxy_auth_password">Password</string>
 </resources>

@@ -87,6 +87,7 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
   private lateinit var connectivityManager: ConnectivityManager
   private lateinit var mdmChangeReceiver: MDMSettingsChangedReceiver
   private lateinit var app: libtailscale.Application
+  private val adBlockRulesLoaded = java.util.concurrent.atomic.AtomicBoolean(false)
   override val viewModelStore: ViewModelStore
     get() = appViewModelStore
 
@@ -109,6 +110,54 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
       initOnce() // Calls the synchronized initialization logic
     }
     return app
+  }
+
+  /**
+   * Pushes the user's ad blocking preference into the native filtering engine. Safe to call before
+   * the tunnel is up: the engine only takes effect while DNS packets flow through the tunnel.
+   */
+  fun syncAdBlockSettings() {
+    try {
+      app.setAdBlockEnabled(isAdBlockEnabled())
+      applyAdBlockPackages()
+    } catch (e: Exception) {
+      TSLog.e(TAG, "adblock: syncing enabled state failed", e)
+    }
+  }
+
+  /** Pushes the per-app exclusion list into the native engine. */
+  fun applyAdBlockPackages() {
+    try {
+      app.setAdBlockIgnoredPackages(adblockDisabledPackages().joinToString("\n"))
+    } catch (e: Exception) {
+      TSLog.e(TAG, "adblock: syncing app list failed", e)
+    }
+  }
+
+  /** Loads the bundled DNS block list into the native engine once, off the main thread. */
+  fun ensureAdBlockRulesLoaded() {
+    if (!adBlockRulesLoaded.compareAndSet(false, true)) {
+      return
+    }
+    try {
+      app.setAdBlockUIDLookup(AdBlockUidLookup(this))
+    } catch (e: Exception) {
+      TSLog.e(TAG, "adblock: installing UID lookup failed", e)
+    }
+    Thread(
+            {
+              try {
+                val text = assets.open("adblock_rules.txt").bufferedReader().use { it.readText() }
+                val count = app.setAdBlockRules(text)
+                TSLog.d(TAG, "adblock: loaded $count rules")
+              } catch (e: Throwable) {
+                TSLog.e(TAG, "adblock: loading rules failed", e)
+                adBlockRulesLoaded.set(false)
+              }
+            },
+            "adblock-rules",
+        )
+        .start()
   }
 
   override fun onCreate() {
@@ -257,6 +306,10 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     ShareFileHelper.init(this, app, directFileRoot, applicationScope)
     Notifier.setApp(app)
     Notifier.start(applicationScope)
+    syncAdBlockSettings()
+    ensureAdBlockRulesLoaded()
+    ProxyManager.observe(applicationScope)
+    ProxyManager.apply()
   }
 
   private fun initViewModels() {
@@ -319,8 +372,28 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     )
   }
 
-  fun getStoredDirectoryUri(): Uri? {
-    val uriString = getEncryptedPrefs().getString(PREF_KEY_SAF_URI, null)
+  fun readProxyCredential(key: String): String {
+    return try {
+      getEncryptedPrefs().getString(key, "") ?: ""
+    } catch (e: Exception) {
+      TSLog.w(TAG, "proxy: reading credential failed: ${e.localizedMessage}")
+      ""
+    }
+  }
+
+  fun writeProxyCredentials(username: String, password: String) {
+    try {
+      getEncryptedPrefs()
+          .edit()
+          .putString(PROXY_USERNAME_KEY, username)
+          .putString(PROXY_PASSWORD_KEY, password)
+          .apply()
+    } catch (e: Exception) {
+      TSLog.e(TAG, "proxy: writing credentials failed", e)
+    }
+  }
+
+  fun getStoredDirectoryUri(): Uri? {    val uriString = getEncryptedPrefs().getString(PREF_KEY_SAF_URI, null)
     return uriString?.let { Uri.parse(it) }
   }
 
@@ -581,6 +654,16 @@ open class UninitializedApp : Application() {
     private const val START_ON_BOOT_KEY = "startOnBoot"
     private const val HIDE_FROM_RECENTS_KEY = "hideFromRecents"
     private const val LAST_WANT_RUNNING_KEY = "lastWantRunning"
+    private const val ADBLOCK_ENABLED_KEY = "adblockEnabled"
+    private const val ADBLOCK_DISABLED_APPS_KEY = "adblockDisabledApps"
+    private const val PROXY_ENABLED_KEY = "proxyEnabled"
+    private const val PROXY_HTTP_PORT_KEY = "proxyHttpPort"
+    private const val PROXY_SOCKS_PORT_KEY = "proxySocksPort"
+    private const val PROXY_PAC_PORT_KEY = "proxyPacPort"
+    private const val PROXY_EXPOSE_KEY = "proxyExposeOnTailnet"
+    private const val PROXY_EGRESS_KEY = "proxyEgress"
+    internal const val PROXY_USERNAME_KEY = "proxyUsername"
+    internal const val PROXY_PASSWORD_KEY = "proxyPassword"
     // File for shared preferences that are not encrypted.
     private const val UNENCRYPTED_PREFERENCES = "unencrypted"
     private lateinit var appInstance: UninitializedApp
@@ -645,6 +728,98 @@ open class UninitializedApp : Application() {
    */
   val hideFromRecents: MutableStateFlow<Boolean> by lazy {
     MutableStateFlow(isHideFromRecentsEnabled())
+  }
+
+  /**
+   * Whether DNS-level ad blocking should be active while the tunnel is up. Independent from the
+   * VPN master switch: flipping this never starts or stops the tunnel.
+   */
+  fun isAdBlockEnabled(): Boolean {
+    return getUnencryptedPrefs().getBoolean(ADBLOCK_ENABLED_KEY, true)
+  }
+
+  fun setAdBlockEnabled(enabled: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(ADBLOCK_ENABLED_KEY, enabled).apply()
+  }
+
+  /**
+   * Whether the Every Proxy style LAN proxy should run while the tunnel is up. Independent from the
+   * VPN master switch: flipping this never starts or stops the tunnel.
+   */
+  fun isProxyEnabled(): Boolean {
+    return getUnencryptedPrefs().getBoolean(PROXY_ENABLED_KEY, false)
+  }
+
+  fun setProxyEnabled(enabled: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(PROXY_ENABLED_KEY, enabled).apply()
+  }
+
+  /**
+   * Apps whose DNS queries are never filtered. The list starts empty, so every app inside the
+   * tunnel is filtered by default.
+   */
+  fun adblockDisabledPackages(): Set<String> {
+    return getUnencryptedPrefs().getStringSet(ADBLOCK_DISABLED_APPS_KEY, emptySet()) ?: emptySet()
+  }
+
+  fun setAdblockDisabledPackages(packages: Set<String>) {
+    getUnencryptedPrefs().edit().putStringSet(ADBLOCK_DISABLED_APPS_KEY, packages).apply()
+    App.get().applyAdBlockPackages()
+  }
+
+  /** True when the app's traffic is routed through the tunnel, i.e. its DNS is filterable. */
+  fun isPackageInTunnel(packageName: String): Boolean {
+    if (packageName in builtInDisallowedPackageNames) return false
+    val selected = selectedPackageNames()
+    return if (allowSelectedPackages()) packageName in selected else packageName !in selected
+  }
+
+  /** Moves an app into the tunnel so that its DNS queries can be filtered. */
+  fun addPackageToTunnel(packageName: String) {
+    val selected = selectedPackageNames()
+    val updated =
+        if (allowSelectedPackages()) (selected + packageName).distinct()
+        else (selected - packageName).distinct()
+    updateUserSelectedPackages(updated)
+  }
+
+  fun proxyHttpPort(): Int = getUnencryptedPrefs().getInt(PROXY_HTTP_PORT_KEY, 8080)
+
+  fun proxySocksPort(): Int = getUnencryptedPrefs().getInt(PROXY_SOCKS_PORT_KEY, 1080)
+
+  fun proxyPacPort(): Int = getUnencryptedPrefs().getInt(PROXY_PAC_PORT_KEY, 8081)
+
+  fun setProxyPorts(http: Int, socks: Int, pac: Int) {
+    getUnencryptedPrefs()
+        .edit()
+        .putInt(PROXY_HTTP_PORT_KEY, http)
+        .putInt(PROXY_SOCKS_PORT_KEY, socks)
+        .putInt(PROXY_PAC_PORT_KEY, pac)
+        .apply()
+  }
+
+  /** True when the proxy listens on every interface, including the tailnet address. */
+  fun proxyExposeOnTailnet(): Boolean {
+    return getUnencryptedPrefs().getBoolean(PROXY_EXPOSE_KEY, true)
+  }
+
+  fun setProxyExposeOnTailnet(expose: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(PROXY_EXPOSE_KEY, expose).apply()
+  }
+
+  /** "tailscale" or "direct". */
+  fun proxyEgress(): String = getUnencryptedPrefs().getString(PROXY_EGRESS_KEY, "tailscale") ?: "tailscale"
+
+  fun setProxyEgress(egress: String) {
+    getUnencryptedPrefs().edit().putString(PROXY_EGRESS_KEY, egress).apply()
+  }
+
+  fun proxyUsername(): String = App.get().readProxyCredential(PROXY_USERNAME_KEY)
+
+  fun proxyPassword(): String = App.get().readProxyCredential(PROXY_PASSWORD_KEY)
+
+  fun setProxyCredentials(username: String, password: String) {
+    App.get().writeProxyCredentials(username, password)
   }
 
   /** Whether the VPN was wanted (connected) the last time the app persisted its state. */

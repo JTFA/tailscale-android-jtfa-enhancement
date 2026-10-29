@@ -150,6 +150,48 @@ type Application interface {
 	// on every new ipn.Notify message. The returned NotificationManager
 	// allows the watcher to stop watching notifications.
 	WatchNotifications(mask int, cb NotificationCallback) NotificationManager
+
+	// SetAdBlockEnabled enables or disables DNS-level ad blocking for the
+	// whole tunnel. It never starts or stops the tunnel itself.
+	SetAdBlockEnabled(enabled bool)
+
+	// SetAdBlockRules replaces the active ad blocking rule set with the given
+	// filter text and returns the number of usable rules. Parsing happens
+	// synchronously; callers should invoke it off the UI thread.
+	SetAdBlockRules(rules string) (ruleCount int64, err error)
+
+	// SetAdBlockIgnoredPackages sets the package names whose DNS queries are
+	// never blocked. The argument is a newline-separated list.
+	SetAdBlockIgnoredPackages(packages string)
+
+	// SetAdBlockUIDLookup installs the callback used to attribute DNS queries
+	// to the app that made them. Passing nil disables attribution.
+	SetAdBlockUIDLookup(lookup UIDLookup)
+
+	// AdBlockStatsJSON returns the current counters as JSON.
+	AdBlockStatsJSON() string
+
+	// StartProxy starts the HTTP/HTTPS, SOCKS and PAC proxy servers using the
+	// given JSON configuration. It returns the resulting status as JSON.
+	StartProxy(configJSON string) (statusJSON string, err error)
+
+	// StopProxy stops all proxy listeners and closes active connections.
+	StopProxy()
+
+	// ProxyStatusJSON returns the proxy settings and counters as JSON.
+	ProxyStatusJSON() string
+}
+
+// UIDLookup resolves the app that owns a socket. Implemented in Kotlin on top
+// of VpnService.getConnectionOwnerUid.
+type UIDLookup interface {
+	// LookupUID returns the Android UID that owns the given UDP or TCP
+	// connection, or -1 when it cannot be determined.
+	LookupUID(proto int32, srcIP string, srcPort int32, dstIP string, dstPort int32) int32
+
+	// PackageForUID returns the package name for the given Android UID, or an
+	// empty string when unknown.
+	PackageForUID(uid int32) string
 }
 
 // FileParts is an array of multiple FileParts.

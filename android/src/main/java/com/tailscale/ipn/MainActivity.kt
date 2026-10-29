@@ -34,8 +34,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +57,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tailscale.ipn.mdm.MDMSettings
@@ -67,6 +71,9 @@ import com.tailscale.ipn.ui.util.DeepLinkNavigator
 import com.tailscale.ipn.ui.util.set
 import com.tailscale.ipn.ui.util.universalFit
 import com.tailscale.ipn.ui.view.AboutView
+import com.tailscale.ipn.ui.view.AdBlockAppsView
+import com.tailscale.ipn.ui.view.AdBlockView
+import com.tailscale.ipn.ui.view.AppBottomBar
 import com.tailscale.ipn.ui.view.BugReportView
 import com.tailscale.ipn.ui.view.DNSSettingsView
 import com.tailscale.ipn.ui.view.ExitNodePicker
@@ -86,6 +93,7 @@ import com.tailscale.ipn.ui.view.NotificationsView
 import com.tailscale.ipn.ui.view.PeerDetails
 import com.tailscale.ipn.ui.view.PermissionsView
 import com.tailscale.ipn.ui.view.PrimaryActionButton
+import com.tailscale.ipn.ui.view.ProxyView
 import com.tailscale.ipn.ui.view.RunExitNodeView
 import com.tailscale.ipn.ui.view.SearchView
 import com.tailscale.ipn.ui.view.SettingsView
@@ -96,6 +104,7 @@ import com.tailscale.ipn.ui.view.TaildropDirectoryPickerPrompt
 import com.tailscale.ipn.ui.view.TailnetLockSetupView
 import com.tailscale.ipn.ui.view.UserSwitcherNav
 import com.tailscale.ipn.ui.view.UserSwitcherView
+import com.tailscale.ipn.ui.view.bottomTabs
 import com.tailscale.ipn.ui.viewModel.AppViewModel
 import com.tailscale.ipn.ui.viewModel.ExitNodePickerNav
 import com.tailscale.ipn.ui.viewModel.MainViewModel
@@ -296,9 +305,31 @@ class MainActivity : ComponentActivity() {
       AppTheme {
         Surface(color = MaterialTheme.colorScheme.inverseSurface) { // Background for the letterbox
           Surface(modifier = Modifier.universalFit()) { // Letterbox for AndroidTV
-            NavHost(
-                navController = navController,
-                startDestination = "main",
+            val backStackEntry by navController.currentBackStackEntryAsState()
+            val currentRoute = backStackEntry?.destination?.route
+            Scaffold(
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                bottomBar = {
+                  if (bottomTabs.any { it.route == currentRoute }) {
+                    AppBottomBar(currentRoute) { target ->
+                      when {
+                        target == currentRoute -> {}
+                        target == "main" -> navController.popBackStack("main", false)
+                        else ->
+                            navController.navigate(target) {
+                              popUpTo("main") { saveState = true }
+                              launchSingleTop = true
+                              restoreState = true
+                            }
+                      }
+                    }
+                  }
+                },
+            ) { innerPadding ->
+              NavHost(
+                  navController = navController,
+                  startDestination = "main",
+                  modifier = Modifier.padding(innerPadding),
                 enterTransition = {
                   slideInHorizontally(
                       animationSpec = tween(250, easing = LinearOutSlowInEasing),
@@ -384,6 +415,19 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                 )
               }
+              composable("adblock", enterTransition = { fadeIn(animationSpec = tween(150)) }) {
+                AdBlockView(
+                    viewModel = viewModel,
+                    navigation = mainViewNav,
+                    onNavigateToApps = { navController.navigate("adblockApps") },
+                )
+              }
+              composable("proxy", enterTransition = { fadeIn(animationSpec = tween(150)) }) {
+                ProxyView(viewModel = viewModel, navigation = mainViewNav)
+              }
+              composable("adblockApps") {
+                AdBlockAppsView(onBack = { navController.popBackStack() })
+              }
               composable("search") {
                 val autoFocus = viewModel.autoFocusSearch
                 SearchView(
@@ -458,6 +502,7 @@ class MainActivity : ComponentActivity() {
                     backTo("userSwitcher"),
                 )
               }
+                }
             }
             if (isIntroScreenViewedSet()) {
               navController.navigate("intro")

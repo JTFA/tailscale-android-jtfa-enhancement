@@ -135,7 +135,6 @@ fun MainView(
     viewModel: MainViewModel,
 ) {
   val currentPingDevice by viewModel.pingViewModel.peer.collectAsState()
-  val healthIcon by viewModel.healthIcon.collectAsState()
 
   LoadingIndicator.Wrap {
     Scaffold(contentWindowInsets = WindowInsets.statusBars) { paddingInsets ->
@@ -147,74 +146,14 @@ fun MainView(
         val isOn by viewModel.vpnToggleState.collectAsState()
         val state by viewModel.ipnState.collectAsState()
         val user by viewModel.loggedInUser.collectAsState()
-        val stateVal by viewModel.stateRes.collectAsState(initial = R.string.placeholder)
-        val stateStr = stringResource(id = stateVal)
         val netmap by viewModel.netmap.collectAsState()
         val showExitNodePicker by MDMSettings.exitNodesPicker.flow.collectAsState()
-        val disableToggle by MDMSettings.forceEnabled.flow.collectAsState()
-        val isToggleInProgress by viewModel.isToggleInProgress.collectAsState()
         val showKeyExpiry by viewModel.showExpiry.collectAsState()
 
-        val hideHeader = (isAndroidTV() && state == Ipn.State.NeedsLogin)
-        ListItem(
-            colors = MaterialTheme.colorScheme.surfaceContainerListItem,
-            leadingContent = {
-              if (!hideHeader) {
-                TintedSwitch(
-                    checked = isOn,
-                    enabled =
-                        !disableToggle.value &&
-                            !isToggleInProgress, // Disable switch if toggle is in progress
-                    onCheckedChange = { desiredState -> viewModel.toggleVpn(desiredState) },
-                )
-              }
-            },
-            headlineContent = {
-              user?.NetworkProfile?.tailnetNameForDisplay()?.let { domain ->
-                AutoResizingText(
-                    text = domain,
-                    style = MaterialTheme.typography.titleMedium.short,
-                    minFontSize = MaterialTheme.typography.minTextSize,
-                    overflow = TextOverflow.Ellipsis,
-                )
-              }
-            },
-            supportingContent = {
-              if (!hideHeader) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                  Text(text = stateStr, style = MaterialTheme.typography.bodyMedium.short)
-                  healthIcon?.let {
-                    Spacer(modifier = Modifier.size(4.dp))
-                    IconButton(
-                        onClick = { navigation.onNavigateToHealth() },
-                        modifier = Modifier.size(16.dp),
-                    ) {
-                      Icon(
-                          painterResource(id = it),
-                          contentDescription = null,
-                          modifier = Modifier.size(16.dp),
-                          tint = MaterialTheme.colorScheme.error,
-                      )
-                    }
-                  }
-                }
-              }
-            },
-            trailingContent = {
-              Box(modifier = Modifier.padding(8.dp), contentAlignment = Alignment.CenterEnd) {
-                when (user) {
-                  null -> SettingsButton { navigation.onNavigateToSettings() }
-                  else -> {
-                    Avatar(
-                        profile = user,
-                        size = 36,
-                        { navigation.onNavigateToSettings() },
-                        isFocusable = true,
-                    )
-                  }
-                }
-              }
-            },
+        AppHeader(
+            viewModel = viewModel,
+            onNavigateToSettings = navigation.onNavigateToSettings,
+            onNavigateToHealth = navigation.onNavigateToHealth,
         )
         when (state) {
           Ipn.State.Running -> {
@@ -444,17 +383,6 @@ private fun ExitNodeStatus(navAction: () -> Unit, viewModel: MainViewModel) {
           },
       )
     }
-  }
-}
-
-@Composable
-private fun SettingsButton(action: () -> Unit) {
-  IconButton(modifier = Modifier.size(24.dp), onClick = { action() }) {
-    Icon(
-        Icons.Outlined.Settings,
-        contentDescription = "Open settings",
-        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
   }
 }
 

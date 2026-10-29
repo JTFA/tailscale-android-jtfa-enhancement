@@ -326,6 +326,7 @@ func (a *App) newBackend(dataDir string, appCtx AppContext, store *stateStore,
 	b.netMon = netMon
 	b.setupLogs(dataDir, logID, logf, sys.HealthTracker.Get(), a.isClientLoggingEnabled())
 	dialer := new(tsdial.Dialer)
+	tsDialerForProxy.Store(dialer)
 	vf := &VPNFacade{
 		SetBoth:           b.setCfg,
 		GetBaseConfigFunc: b.getDNSBaseConfig,
