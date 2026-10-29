@@ -66,13 +66,13 @@ object AdBlockSources {
           AdBlockSource(
               id = "stevenblack",
               title = "StevenBlack hosts",
-              url = "https://cdn.jsdelivr.net/gh/StevenBlack/hosts@master/hosts",
+              url = "https://fastly.jsdelivr.net/gh/StevenBlack/hosts@master/hosts",
               builtin = true,
           ),
           AdBlockSource(
               id = "1hosts-lite",
               title = "1Hosts Lite",
-              url = "https://cdn.jsdelivr.net/gh/badmojr/1Hosts@master/Lite/hosts.txt",
+              url = "https://fastly.jsdelivr.net/gh/badmojr/1Hosts@master/Lite/hosts.txt",
               builtin = true,
           ),
           AdBlockSource(
@@ -117,6 +117,28 @@ object AdBlockSources {
       } catch (e: Exception) {
         url
       }
+
+  /**
+   * Alternative URLs to try when the direct download fails. GitHub raw content and the default
+   * jsDelivr host are frequently reset or blackholed on some networks; jsDelivr's Fastly/Gcore
+   * endpoints and gh-proxy serve the same bytes.
+   */
+  fun mirrorUrls(url: String): List<String> {
+    val mirrors = mutableListOf<String>()
+    val raw = Regex("""^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([^/]+)/(.+)$""")
+    val github = Regex("""^https://github\.com/([^/]+)/([^/]+)/(?:raw|blob)/([^/]+)/(.+)$""")
+    val match = raw.find(url) ?: github.find(url)
+    if (match != null) {
+      val (owner, repo, branch, path) = match.destructured
+      mirrors += "https://fastly.jsdelivr.net/gh/$owner/$repo@$branch/$path"
+      mirrors += "https://gcore.jsdelivr.net/gh/$owner/$repo@$branch/$path"
+      mirrors += "https://gh-proxy.com/https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+    } else if (url.startsWith("https://cdn.jsdelivr.net/")) {
+      mirrors += url.replaceFirst("https://cdn.jsdelivr.net/", "https://fastly.jsdelivr.net/")
+      mirrors += url.replaceFirst("https://cdn.jsdelivr.net/", "https://gcore.jsdelivr.net/")
+    }
+    return mirrors.distinct().filter { it != url }
+  }
 
   fun readCombinedCache(context: Context): String? {
     val file = combinedCacheFile(context)
@@ -258,12 +280,34 @@ object AdBlockRuleCompiler {
     return count
   }
 
+  private class DownloadHttpException(val status: Int) : Exception("HTTP $status")
+
   private fun download(source: AdBlockSource, onProgress: (String) -> Unit = {}): String {
     onProgress(source.title)
+    val urls = listOf(source.url) + AdBlockSources.mirrorUrls(source.url)
+    var lastFailure: String? = null
+    for (url in urls) {
+      try {
+        return downloadOnce(source.title, url)
+      } catch (e: DownloadHttpException) {
+        // A 4xx means the path is wrong; another host will not help.
+        if (e.status in 400..499) {
+          throw AdBlockSourceException("${source.title}: HTTP ${e.status}")
+        }
+        lastFailure = e.message
+      } catch (e: Exception) {
+        lastFailure = e.message ?: "download failed"
+      }
+    }
+    val suffix = if (urls.size > 1) " (direct and mirror URLs failed)" else ""
+    throw AdBlockSourceException("${source.title}: ${lastFailure ?: "download failed"}$suffix")
+  }
+
+  private fun downloadOnce(title: String, url: String): String {
     var conn: HttpURLConnection? = null
     try {
       conn =
-          (URL(source.url).openConnection() as HttpURLConnection).apply {
+          (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 30_000
             instanceFollowRedirects = true
@@ -272,7 +316,7 @@ object AdBlockRuleCompiler {
           }
       val code = conn.responseCode
       if (code !in 200..299) {
-        throw AdBlockSourceException("${source.title}: HTTP $code")
+        throw DownloadHttpException(code)
       }
       val contentType = conn.contentType?.lowercase().orEmpty()
       if (contentType.startsWith("image/") ||
@@ -282,7 +326,7 @@ object AdBlockRuleCompiler {
           contentType.contains("application/zip") ||
           contentType.contains("application/json") ||
           contentType.contains("text/html")) {
-        throw AdBlockSourceException("${source.title}: not a plain text list")
+        throw AdBlockSourceException("not a plain text list")
       }
 
       val bytes =
@@ -295,24 +339,26 @@ object AdBlockRuleCompiler {
               if (read < 0) break
               total += read
               if (total > MAX_SOURCE_BYTES) {
-                throw AdBlockSourceException("${source.title}: list is larger than 5 MB")
+                throw AdBlockSourceException("list is larger than 5 MB")
               }
               out.write(buffer, 0, read)
             }
             out.toByteArray()
           }
       if (bytes.any { it == 0.toByte() }) {
-        throw AdBlockSourceException("${source.title}: binary content")
+        throw AdBlockSourceException("binary content")
       }
       val text = String(bytes, Charsets.UTF_8).removePrefix("\uFEFF")
       if (looksLikeMarkup(text)) {
-        throw AdBlockSourceException("${source.title}: not a filter list")
+        throw AdBlockSourceException("not a filter list")
       }
       return text
+    } catch (e: DownloadHttpException) {
+      throw e
     } catch (e: AdBlockSourceException) {
       throw e
     } catch (e: Exception) {
-      throw AdBlockSourceException("${source.title}: ${e.message ?: "download failed"}")
+      throw AdBlockSourceException(e.message ?: "download failed")
     } finally {
       conn?.disconnect()
     }
