@@ -306,10 +306,19 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     ShareFileHelper.init(this, app, directFileRoot, applicationScope)
     Notifier.setApp(app)
     Notifier.start(applicationScope)
-    syncAdBlockSettings()
-    ensureAdBlockRulesLoaded()
-    ProxyManager.observe(applicationScope)
-    ProxyManager.apply()
+    try {
+      syncAdBlockSettings()
+      ensureAdBlockRulesLoaded()
+    } catch (t: Throwable) {
+      TSLog.e(TAG, "adblock: startup failed", t)
+    }
+    // observe() reapplies the proxy as soon as the notifier reports a state, so there is no direct
+    // apply() call here: it would run while the app is still initializing.
+    try {
+      ProxyManager.observe(applicationScope)
+    } catch (t: Throwable) {
+      TSLog.e(TAG, "proxy: startup failed", t)
+    }
   }
 
   private fun initViewModels() {

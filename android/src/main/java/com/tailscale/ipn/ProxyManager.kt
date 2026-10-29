@@ -44,16 +44,21 @@ object ProxyManager {
     }
   }
 
-  /** Starts, restarts or stops the proxy so that it matches the current preferences. */
+  /**
+   * Starts, restarts or stops the proxy so that it matches the current preferences.
+   *
+   * Uses [UninitializedApp] for the preference checks so that it can be called while the app is
+   * still starting up: calling `App.get()` there would re-enter initialization.
+   */
   fun apply() {
-    val app = App.get()
+    val app = UninitializedApp.get()
     if (!app.isProxyEnabled() || Notifier.state.value != Ipn.State.Running) {
       stop()
       return
     }
     try {
       val json = configJson(app)
-      val status = JSONObject(app.getLibtailscaleApp().startProxy(json))
+      val status = JSONObject(App.get().getLibtailscaleApp().startProxy(json))
       running = status.optBoolean("running")
       TSLog.d(TAG, "proxy running: $status")
     } catch (e: Exception) {
@@ -105,7 +110,7 @@ object ProxyManager {
     }
   }
 
-  private fun configJson(app: App): String {
+  private fun configJson(app: UninitializedApp): String {
     val expose = app.proxyExposeOnTailnet()
     return JSONObject()
         .put("bindAddr", if (expose) "0.0.0.0" else "127.0.0.1")
