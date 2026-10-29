@@ -25,6 +25,11 @@ android/local.properties
 # Signing key
 tailscale.jks
 
+# Local release signing material and build output
+/android/keystore
+/android/keystore.properties
+/dist
+
 # android sdk dir
 /android-sdk/
 

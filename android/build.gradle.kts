@@ -22,6 +22,11 @@ android {
   compileSdk = androidApiLevel
 
   defaultConfig {
+    // applicationId is kept out of version control: set
+    // `tailscale.applicationId=...` in android/local.properties (gitignored) to
+    // install alongside the upstream Tailscale app. Defaults to upstream's ID.
+    applicationId = getLocalProperty("tailscale.applicationId", "com.tailscale.ipn")
+
     minSdk = 26
     targetSdk = androidApiLevel
 
