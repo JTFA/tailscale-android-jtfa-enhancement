@@ -365,6 +365,10 @@
     <string name="client_remote_logging_disable_confirm_title">Disable remote client logging?</string>
     <string name="client_remote_logging_disable_confirm_message">Disabling remote client logging will break Network Flow Logs if enabled and required by your tailnet admin, and will prevent Tailscale Support from being able to help debug problems with this device.</string>
     <string name="client_remote_logging_disable_confirm_button">Yes, disable</string>
+    <string name="start_on_boot">Start on boot</string>
+    <string name="start_on_boot_subtitle">Reconnect to Tailscale automatically after the device restarts.</string>
+    <string name="hide_from_recents">Hide from recent tasks</string>
+    <string name="hide_from_recents_subtitle">Keep this app out of the recent tasks list while the VPN keeps running in the background.</string>
     <string name="specifies_a_device_name_to_be_used_instead_of_the_automatic_default">Specifies a device name to be used instead of the automatic default.</string>
     <string name="hostname">Hostname</string>
     <string name="failed_to_save">Failed to save</string>

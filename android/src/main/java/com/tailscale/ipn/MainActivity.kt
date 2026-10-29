@@ -59,6 +59,7 @@ import androidx.navigation.navArgument
 import com.tailscale.ipn.mdm.MDMSettings
 import com.tailscale.ipn.mdm.ShowHide
 import com.tailscale.ipn.ui.model.Ipn
+import com.tailscale.ipn.util.RecentsVisibility
 import com.tailscale.ipn.ui.notifier.Notifier
 import com.tailscale.ipn.ui.theme.AppTheme
 import com.tailscale.ipn.ui.util.AndroidTVUtil
@@ -144,6 +145,13 @@ class MainActivity : ComponentActivity() {
 
     // grab app to make sure it initializes
     App.get()
+
+    // Keep the recent tasks list in sync with the setting, including when the
+    // user flips the switch while this activity is visible.
+    lifecycleScope.launch {
+      App.get().hideFromRecents.collect { hide -> RecentsVisibility.apply(this@MainActivity, hide) }
+    }
+
     appViewModel = (application as App).getAppScopedViewModel()
     viewModel =
         ViewModelProvider(this, MainViewModelFactory(appViewModel)).get(MainViewModel::class.java)
@@ -597,6 +605,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onResume() {
     super.onResume()
+    RecentsVisibility.apply(this, App.get().isHideFromRecentsEnabled())
     val restrictionsManager =
         this.getSystemService(Context.RESTRICTIONS_SERVICE) as RestrictionsManager
     lifecycleScope.launch(Dispatchers.IO) { MDMSettings.update(App.get(), restrictionsManager) }

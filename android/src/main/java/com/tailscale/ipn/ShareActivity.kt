@@ -32,6 +32,7 @@ import com.tailscale.ipn.ui.util.set
 import com.tailscale.ipn.ui.util.universalFit
 import com.tailscale.ipn.ui.view.TaildropView
 import com.tailscale.ipn.util.InlineShare
+import com.tailscale.ipn.util.RecentsVisibility
 import com.tailscale.ipn.util.TSLog
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +83,7 @@ class ShareActivity : ComponentActivity() {
     super.onStart()
     // Ensure our app instance is initialized
     App.get()
+    RecentsVisibility.apply(this, App.get().isHideFromRecentsEnabled())
     lifecycleScope.launch { withContext(Dispatchers.IO) { loadFiles() } }
   }
 

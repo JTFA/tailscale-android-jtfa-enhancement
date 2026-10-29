@@ -64,6 +64,8 @@ fun SettingsView(
   val showTailnetLock by MDMSettings.manageTailnetLock.flow.collectAsState()
   val useTailscaleSubnets by MDMSettings.useTailscaleSubnets.flow.collectAsState()
   val isClientRemoteLoggingEnabled by viewModel.isClientRemoteLoggingEnabled.collectAsState()
+  val startOnBoot by viewModel.startOnBoot.collectAsState()
+  val hideFromRecents by viewModel.hideFromRecents.collectAsState()
   var showDisableLoggingDialog by remember { mutableStateOf(false) }
 
   Scaffold(
@@ -138,6 +140,22 @@ fun SettingsView(
               viewModel.toggleIsClientRemoteLoggingEnabled()
             }
           },
+      )
+
+      Lists.SectionDivider()
+      Setting.Switch(
+          R.string.start_on_boot,
+          subtitle = stringResource(R.string.start_on_boot_subtitle),
+          isOn = startOnBoot,
+          onToggle = { viewModel.toggleStartOnBoot() },
+      )
+
+      Lists.ItemDivider()
+      Setting.Switch(
+          R.string.hide_from_recents,
+          subtitle = stringResource(R.string.hide_from_recents_subtitle),
+          isOn = hideFromRecents,
+          onToggle = { viewModel.toggleHideFromRecents() },
       )
 
       if (!AndroidTVUtil.isAndroidTV()) {

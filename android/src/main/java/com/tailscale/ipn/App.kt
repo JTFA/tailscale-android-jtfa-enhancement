@@ -50,6 +50,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -265,6 +266,10 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
   }
 
   fun setWantRunning(wantRunning: Boolean, onSuccess: (() -> Unit)? = null) {
+    // Remember the last requested state so BootReceiver can decide whether to
+    // reconnect after a reboot (see BootReceiver.kt).
+    setVpnRequested(wantRunning)
+
     val callback: (Result<Ipn.Prefs>) -> Unit = { result ->
       result.fold(
           onSuccess = { onSuccess?.invoke() },
@@ -573,6 +578,9 @@ open class UninitializedApp : Application() {
     private const val ALLOW_SELECTED_APPS_KEY = "allowSelectedApps"
 
     private const val IS_CLIENT_LOGGING_ENABLED_KEY = "isClientLoggingEnabled"
+    private const val START_ON_BOOT_KEY = "startOnBoot"
+    private const val HIDE_FROM_RECENTS_KEY = "hideFromRecents"
+    private const val LAST_WANT_RUNNING_KEY = "lastWantRunning"
     // File for shared preferences that are not encrypted.
     private const val UNENCRYPTED_PREFERENCES = "unencrypted"
     private lateinit var appInstance: UninitializedApp
@@ -609,6 +617,43 @@ open class UninitializedApp : Application() {
   /** This function can be called without initializing the App. */
   fun isAbleToStartVPN(): Boolean {
     return getUnencryptedPrefs().getBoolean(ABLE_TO_START_VPN_KEY, false)
+  }
+
+  /** True when the user asked for the VPN to be started after the device boots. */
+  fun isStartOnBootEnabled(): Boolean {
+    return getUnencryptedPrefs().getBoolean(START_ON_BOOT_KEY, false)
+  }
+
+  fun setStartOnBootEnabled(enabled: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(START_ON_BOOT_KEY, enabled).apply()
+  }
+
+  /** True when the app should be excluded from the system recent tasks list. */
+  fun isHideFromRecentsEnabled(): Boolean {
+    return getUnencryptedPrefs().getBoolean(HIDE_FROM_RECENTS_KEY, false)
+  }
+
+  fun setHideFromRecentsEnabled(enabled: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(HIDE_FROM_RECENTS_KEY, enabled).apply()
+    hideFromRecents.value = enabled
+  }
+
+  /**
+   * Observable mirror of [isHideFromRecentsEnabled] so the visible activity can apply the change
+   * as soon as the user flips the switch. Lazily initialized because shared preferences are only
+   * available after the Application has been attached to a context.
+   */
+  val hideFromRecents: MutableStateFlow<Boolean> by lazy {
+    MutableStateFlow(isHideFromRecentsEnabled())
+  }
+
+  /** Whether the VPN was wanted (connected) the last time the app persisted its state. */
+  fun wasVpnRequested(): Boolean {
+    return getUnencryptedPrefs().getBoolean(LAST_WANT_RUNNING_KEY, false)
+  }
+
+  protected fun setVpnRequested(requested: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(LAST_WANT_RUNNING_KEY, requested).apply()
   }
 
   private fun getUnencryptedPrefs(): SharedPreferences {
