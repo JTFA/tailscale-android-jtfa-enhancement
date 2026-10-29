@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -19,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -178,6 +180,27 @@ private fun AdBlockContent(
                   ),
               modifier = Modifier.weight(1f),
           )
+        }
+        if (enabled && ruleCount > 0) {
+          Spacer(modifier = Modifier.size(10.dp))
+          Text(
+              text =
+                  when {
+                    stats.lastBlocked.isNotEmpty() ->
+                        stringResource(R.string.adblock_last_blocked, stats.lastBlocked)
+                    stats.lastQuery.isNotEmpty() ->
+                        stringResource(R.string.adblock_last_query, stats.lastQuery)
+                    else -> stringResource(R.string.adblock_waiting_for_dns)
+                  },
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+        }
+        if (ruleCount == 0) {
+          Spacer(modifier = Modifier.size(12.dp))
+          Button(onClick = onNavigateToRules, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.adblock_add_rules))
+          }
         }
       }
     }

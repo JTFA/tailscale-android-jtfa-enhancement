@@ -435,7 +435,11 @@
     <string name="adblock_blocked_title">Blocked</string>
     <string name="adblock_queries_title">Queries</string>
     <string name="adblock_dns_note_title">DNS-level filtering</string>
-    <string name="adblock_dns_note">Blocked lookups are answered locally with 0.0.0.0 or :: and never reach the DNS server. Filtering only affects apps whose traffic goes through the Tailscale tunnel.</string>
+    <string name="adblock_dns_note">Blocked lookups are answered locally with 0.0.0.0 or :: and never reach the DNS server. Filtering only affects apps whose traffic goes through the Tailscale tunnel, and needs Use Tailscale DNS to be on. Apps that use their own HTTP DNS, DoH or direct IP addresses for ads are not affected.</string>
+    <string name="adblock_last_blocked">Last blocked: %1$s</string>
+    <string name="adblock_last_query">Last query: %1$s</string>
+    <string name="adblock_waiting_for_dns">No DNS traffic seen yet. Check that Use Tailscale DNS is on in Settings.</string>
+    <string name="adblock_add_rules">Add rules</string>
     <string name="adblock_app_filtering">App filtering</string>
     <string name="adblock_app_filtering_desc">Choose which apps are filtered</string>
     <string name="adblock_app_outside_tunnel">Outside the tunnel</string>

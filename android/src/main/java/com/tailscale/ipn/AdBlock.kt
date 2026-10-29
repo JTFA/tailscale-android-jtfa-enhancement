@@ -12,7 +12,8 @@ data class AdBlockStats(
     val todayQueries: Long = 0,
     val totalQueries: Long = 0,
     val apps: Int = 0,
-    val ruleCount: Int = 0,
+    val lastQuery: String = "",
+    val lastBlocked: String = "",
 )
 
 object AdBlock {
@@ -31,6 +32,8 @@ object AdBlock {
           todayQueries = json.optLong("today"),
           totalQueries = json.optLong("total"),
           apps = json.optJSONObject("apps")?.length() ?: 0,
+          lastQuery = json.optString("lastQuery"),
+          lastBlocked = json.optString("lastBlocked"),
       )
     } catch (e: Exception) {
       TSLog.w(TAG, "reading stats failed: ${e.localizedMessage}")

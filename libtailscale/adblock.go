@@ -226,7 +226,7 @@ func (e *adBlockEngine) inspectQuery(payload []byte, from, to netip.AddrPort) ([
 	e.mu.RUnlock()
 
 	blocked := blockable && rules != nil && rules.blocked(name, q.Type, pkg)
-	e.stats.record(pkg, blocked)
+	e.stats.record(name, pkg, blocked)
 	if !blocked {
 		return nil, false
 	}
@@ -815,10 +815,12 @@ type adBlockStats struct {
 	blocked      int64
 	today        int64
 	todayBlocked int64
+	lastQuery    string
+	lastBlocked  string
 	apps         map[string]*adBlockAppStats
 }
 
-func (s *adBlockStats) record(pkg string, blocked bool) {
+func (s *adBlockStats) record(name, pkg string, blocked bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	day := time.Now().Format("2006-01-02")
@@ -829,9 +831,11 @@ func (s *adBlockStats) record(pkg string, blocked bool) {
 	}
 	s.total++
 	s.today++
+	s.lastQuery = name
 	if blocked {
 		s.blocked++
 		s.todayBlocked++
+		s.lastBlocked = name
 	}
 	if pkg != "" {
 		a := s.apps[pkg]
@@ -858,6 +862,8 @@ func (s *adBlockStats) snapshot() map[string]any {
 		"blocked":      s.blocked,
 		"today":        s.today,
 		"todayBlocked": s.todayBlocked,
+		"lastQuery":    s.lastQuery,
+		"lastBlocked":  s.lastBlocked,
 		"apps":         apps,
 	}
 }

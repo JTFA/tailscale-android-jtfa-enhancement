@@ -466,14 +466,14 @@ class MainActivity : ComponentActivity() {
                       onNavigateToAuthKey = { navController.navigate("loginWithAuthKey") },
                   )
 
-              composable("main", enterTransition = { fadeIn(animationSpec = tween(150)) }) {
+              composable("main") {
                 MainView(
                     loginAtUrl = ::login,
                     navigation = mainViewNav,
                     viewModel = viewModel,
                 )
               }
-              composable("adblock", enterTransition = { fadeIn(animationSpec = tween(150)) }) {
+              composable("adblock") {
                 AdBlockView(
                     viewModel = viewModel,
                     navigation = mainViewNav,
@@ -481,7 +481,7 @@ class MainActivity : ComponentActivity() {
                     onNavigateToApps = { navController.navigate("adblockApps") },
                 )
               }
-              composable("proxy", enterTransition = { fadeIn(animationSpec = tween(150)) }) {
+              composable("proxy") {
                 ProxyView(viewModel = viewModel, navigation = mainViewNav)
               }
               composable("adblockApps") {
