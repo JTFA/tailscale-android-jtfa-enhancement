@@ -416,47 +416,73 @@
     <string name="tab_adblock">AdBlock</string>
     <string name="tab_proxy">Every Proxy</string>
 
+    <!-- Shared metric labels -->
+    <string name="metric_today">Today</string>
+    <string name="metric_max">Max</string>
+    <string name="metric_current">Current</string>
+    <string name="metric_total">Total</string>
+
     <!-- AdBlock tab -->
     <string name="not_connected_adblock">Ad blocking only runs while the Tailscale tunnel is up. Connect to enable it.</string>
-    <string name="adblock_ad_blocking">Ad blocking</string>
-    <string name="adblock_active_while_connected">Active while connected</string>
-    <string name="adblock_today">Today</string>
-    <string name="adblock_total">Total</string>
-    <string name="adblock_apps">Apps</string>
+    <string name="adblock_status_running">Running</string>
+    <string name="adblock_status_paused">Paused</string>
+    <string name="adblock_status_no_rules">No rules</string>
+    <string name="adblock_subtitle">%1$d rules · DNS level</string>
+    <string name="adblock_info_rules">Rules</string>
+    <string name="adblock_info_apps">Apps</string>
+    <string name="adblock_apps_all">All apps</string>
+    <string name="adblock_apps_excluded">%1$d excluded</string>
+    <string name="adblock_blocked_title">Blocked</string>
+    <string name="adblock_queries_title">Queries</string>
     <string name="adblock_dns_note_title">DNS-level filtering</string>
-    <string name="adblock_dns_note">Rules are applied to DNS lookups inside the tunnel. Domain rules only: no HTTPS URL inspection and no in-page element hiding.</string>
+    <string name="adblock_dns_note">Blocked lookups are answered locally with 0.0.0.0 or :: and never reach the DNS server. Filtering only affects apps whose traffic goes through the Tailscale tunnel.</string>
     <string name="adblock_app_filtering">App filtering</string>
     <string name="adblock_app_filtering_desc">Choose which apps are filtered</string>
     <string name="adblock_app_outside_tunnel">Outside the tunnel</string>
     <string name="adblock_add_to_tunnel">Add to tunnel</string>
-    <string name="adblock_rules_credit">Rule list: StevenBlack/hosts (MIT)</string>
+
+    <!-- Custom rules editor -->
+    <string name="adblock_custom_rules">Custom rules</string>
+    <string name="adblock_custom_rules_empty">Tap to add a filter list</string>
+    <string name="adblock_custom_rules_count">%1$d rules</string>
+    <string name="adblock_rules_title">Custom rules</string>
+    <string name="adblock_rules_desc">One rule per line, AdGuard filter syntax. Nothing is blocked until you add rules here.</string>
+    <string name="adblock_rules_placeholder">||ads.example.com^\n@@||good.example.com^\n0.0.0.0 tracker.example.net</string>
+    <string name="adblock_rules_empty">No rules yet. Nothing is blocked.</string>
+    <string name="adblock_rules_saved">%1$d rules active</string>
+    <string name="adblock_rules_save">Save</string>
+    <string name="adblock_rules_clear">Clear</string>
+    <string name="adblock_rules_help_title">What is supported</string>
+    <string name="adblock_rules_help">Supported: ||domain^, |domain|, plain domains, wildcards, hosts lines, /regex/, @@ exceptions, $important, $badfilter, $dnstype=, $denyallow=, $app= and $document.\n\nIgnored because filtering happens at DNS level: cosmetic rules (##, #@#), URL paths and content modifiers such as $script, $image, $third-party, $domain, $header, $cookie and $redirect.</string>
 
     <!-- Every Proxy tab -->
     <string name="not_connected_proxy">Every Proxy only runs while the Tailscale tunnel is up. Connect to enable it.</string>
-    <string name="proxy_server">Proxy server</string>
     <string name="proxy_status_off">Off</string>
     <string name="proxy_status_stopped">Stopped</string>
     <string name="proxy_status_running">Running</string>
+    <string name="proxy_off_desc">Proxy is off</string>
+    <string name="proxy_select_protocol">Turn on at least one protocol</string>
+    <string name="proxy_subtitle">%1$s · %2$d clients</string>
     <string name="proxy_http">HTTP / HTTPS</string>
     <string name="proxy_socks">SOCKS4 / SOCKS5</string>
     <string name="proxy_pac">PAC server</string>
+    <string name="proxy_hosts_label">Hosts</string>
+    <string name="proxy_port_label">Port</string>
+    <string name="proxy_auth_label">Auth</string>
+    <string name="proxy_auth_none">None</string>
+    <string name="proxy_port_title">%1$s port</string>
     <string name="proxy_egress">Egress</string>
     <string name="proxy_via_tailscale">Via Tailscale</string>
     <string name="proxy_direct">Direct</string>
-    <string name="proxy_auth">Authentication</string>
-    <string name="proxy_auth_none">None</string>
-    <string name="proxy_ports_title">Ports</string>
     <string name="proxy_apply">Apply</string>
-    <string name="proxy_clients_current">Active</string>
-    <string name="proxy_clients_max">Max</string>
-    <string name="proxy_clients_total">Total</string>
     <string name="proxy_bytes_up">Received</string>
     <string name="proxy_bytes_down">Sent</string>
     <string name="proxy_expose_tailnet">Expose on tailnet</string>
-    <string name="proxy_expose_tailnet_desc">Listen on all interfaces, including the Tailscale address.</string>
     <string name="proxy_hosts">Addresses</string>
     <string name="proxy_auth_title">Authentication</string>
     <string name="proxy_auth_desc">Optional. HTTP Basic for the HTTP proxy and RFC 1929 for SOCKS5.</string>
     <string name="proxy_auth_username">Username</string>
     <string name="proxy_auth_password">Password</string>
+    <string name="proxy_start">Start proxy</string>
+    <string name="proxy_stop">Stop proxy</string>
 </resources>

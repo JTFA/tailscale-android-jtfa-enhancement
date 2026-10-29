@@ -52,7 +52,8 @@ object ProxyManager {
    */
   fun apply() {
     val app = UninitializedApp.get()
-    if (!app.isProxyEnabled() || Notifier.state.value != Ipn.State.Running) {
+    val anyProtocol = app.proxyHttpEnabled() || app.proxySocksEnabled() || app.proxyPacEnabled()
+    if (!app.isProxyEnabled() || !anyProtocol || Notifier.state.value != Ipn.State.Running) {
       stop()
       return
     }
@@ -121,9 +122,9 @@ object ProxyManager {
         .put("username", app.proxyUsername())
         .put("password", app.proxyPassword())
         .put("egress", app.proxyEgress())
-        .put("enableHttp", true)
-        .put("enableSocks", true)
-        .put("enablePac", true)
+        .put("enableHttp", app.proxyHttpEnabled())
+        .put("enableSocks", app.proxySocksEnabled())
+        .put("enablePac", app.proxyPacEnabled())
         .toString()
   }
 }

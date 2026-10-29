@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"net/netip"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -224,7 +225,7 @@ func (e *adBlockEngine) inspectQuery(payload []byte, from, to netip.AddrPort) ([
 	rules := e.rules
 	e.mu.RUnlock()
 
-	blocked := blockable && rules != nil && rules.blocked(name)
+	blocked := blockable && rules != nil && rules.blocked(name, q.Type, pkg)
 	e.stats.record(pkg, blocked)
 	if !blocked {
 		return nil, false
@@ -314,75 +315,152 @@ func buildBlockedResponse(hdr dnsmessage.Header, q dnsmessage.Question) ([]byte,
 	return b.Finish()
 }
 
-// adBlockRuleSet is a domain matcher with allow rules taking precedence.
+// ruleKind describes how a rule's pattern is matched against a hostname.
+type ruleKind int
+
+const (
+	ruleSubstring ruleKind = iota // plain text, matched anywhere in the hostname
+	ruleSuffix                    // ||domain^ domain anchor
+	ruleExact                     // |domain| exact hostname
+	ruleRegex                     // /regex/
+)
+
+// dnsRule is one parsed AdGuard filter rule. Only the parts that can be
+// evaluated for a DNS query are kept; cosmetic and content filters are skipped
+// while the rule list is parsed.
+type dnsRule struct {
+	allow     bool
+	important bool
+	kind      ruleKind
+	domain    string
+	re        *regexp.Regexp
+	dnsTypes  map[dnsmessage.Type]struct{}
+	denyAllow []string
+	apps      map[string]struct{}
+	text      string // canonical form, used by $badfilter
+}
+
+// adBlockRuleSet holds rules evaluated at the DNS layer. $important blocking
+// rules win over exceptions, exceptions win over ordinary blocking rules,
+// mirroring AdGuard's evaluation order.
 type adBlockRuleSet struct {
-	exact       map[string]struct{}
-	suffix      map[string]struct{}
-	allowExact  map[string]struct{}
-	allowSuffix map[string]struct{}
-	count       int64
+	block []*dnsRule
+	allow []*dnsRule
+	count int64
 }
 
 func newAdBlockRuleSet() *adBlockRuleSet {
-	return &adBlockRuleSet{
-		exact:       make(map[string]struct{}),
-		suffix:      make(map[string]struct{}),
-		allowExact:  make(map[string]struct{}),
-		allowSuffix: make(map[string]struct{}),
-	}
+	return &adBlockRuleSet{}
 }
 
-func (rs *adBlockRuleSet) blocked(name string) bool {
-	if _, ok := rs.allowExact[name]; ok {
+func (rs *adBlockRuleSet) blocked(host string, qtype dnsmessage.Type, pkg string) bool {
+	if rs == nil || len(rs.block)+len(rs.allow) == 0 {
 		return false
 	}
-	if matchDomainSuffix(rs.allowSuffix, name) {
-		return false
-	}
-	if _, ok := rs.exact[name]; ok {
-		return true
-	}
-	return matchDomainSuffix(rs.suffix, name)
-}
-
-func matchDomainSuffix(set map[string]struct{}, name string) bool {
-	for {
-		if _, ok := set[name]; ok {
+	for _, r := range rs.block {
+		if r.important && r.matches(host, qtype, pkg) {
 			return true
 		}
-		i := strings.IndexByte(name, '.')
-		if i < 0 {
+	}
+	for _, r := range rs.allow {
+		if r.matches(host, qtype, pkg) {
 			return false
 		}
-		name = name[i+1:]
+	}
+	for _, r := range rs.block {
+		if r.matches(host, qtype, pkg) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *dnsRule) matches(host string, qtype dnsmessage.Type, pkg string) bool {
+	if len(r.dnsTypes) > 0 {
+		if _, ok := r.dnsTypes[qtype]; !ok {
+			return false
+		}
+	}
+	if len(r.apps) > 0 {
+		if pkg == "" {
+			return false
+		}
+		if _, ok := r.apps[pkg]; !ok {
+			return false
+		}
+	}
+	for _, d := range r.denyAllow {
+		if host == d || strings.HasSuffix(host, "."+d) {
+			return false
+		}
+	}
+	switch r.kind {
+	case ruleSuffix:
+		return host == r.domain || strings.HasSuffix(host, "."+r.domain)
+	case ruleExact:
+		return host == r.domain
+	case ruleRegex:
+		return r.re != nil && r.re.MatchString(host)
+	default:
+		return strings.Contains(host, r.domain)
 	}
 }
 
-// parseAdBlockRules turns filter text into a rule set. It understands
-//
-//   - hosts file lines: "0.0.0.0 ads.example.com"
-//   - plain domains: "ads.example.com"
-//   - AdGuard/uBlock domain anchors: "||ads.example.com^"
-//   - exceptions for any of the above prefixed with "@@"
-//
-// Comments ("!" and "#") and unsupported rules (regexes, URL paths, cosmetic
-// filters, rules with options) are skipped.
+// parseAdBlockRules turns AdGuard-style filter text into a rule set. Rules that
+// cannot be evaluated for a plain DNS query (cosmetic filters, URL paths,
+// content-type modifiers such as $script or $image, and header/cookie/rewrite
+// modifiers) are skipped instead of being treated as matches.
 func parseAdBlockRules(text string) *adBlockRuleSet {
 	rs := newAdBlockRuleSet()
+	var parsed []*dnsRule
+	badfilter := make(map[string]struct{})
 	scanner := bufio.NewScanner(strings.NewReader(text))
-	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
-		if parseAdBlockRuleLine(scanner.Text(), rs) {
-			rs.count++
+		rules, isBadfilter, ok := parseAdBlockRuleLine(scanner.Text())
+		if !ok {
+			continue
+		}
+		if isBadfilter {
+			for _, r := range rules {
+				badfilter[r.text] = struct{}{}
+			}
+			continue
+		}
+		parsed = append(parsed, rules...)
+	}
+	seen := make(map[string]struct{}, len(parsed))
+	for _, r := range parsed {
+		if _, bad := badfilter[r.text]; bad {
+			continue
+		}
+		if _, dup := seen[r.text]; dup {
+			continue
+		}
+		seen[r.text] = struct{}{}
+		rs.count++
+		if r.allow {
+			rs.allow = append(rs.allow, r)
+		} else {
+			rs.block = append(rs.block, r)
 		}
 	}
 	return rs
 }
 
-func parseAdBlockRuleLine(line string, rs *adBlockRuleSet) bool {
-	line = strings.TrimSpace(line)
+// parseAdBlockRuleLine parses one filter list line. Hosts lines can carry more
+// than one hostname, hence the slice result.
+func parseAdBlockRuleLine(line string) ([]*dnsRule, bool, bool) {
+	line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
 	if line == "" || strings.HasPrefix(line, "!") || strings.HasPrefix(line, "[") {
-		return false
+		return nil, false, false
+	}
+	// Cosmetic and scriptlet rules cannot be applied at the DNS layer.
+	if strings.Contains(line, "##") || strings.Contains(line, "#@#") ||
+		strings.Contains(line, "#?#") || strings.Contains(line, "#$#") ||
+		strings.Contains(line, "#@$#") || strings.Contains(line, "#%#") ||
+		strings.Contains(line, "#@%#") {
+		return nil, false, false
 	}
 
 	allow := false
@@ -390,61 +468,213 @@ func parseAdBlockRuleLine(line string, rs *adBlockRuleSet) bool {
 		allow = true
 		line = strings.TrimSpace(line[2:])
 		if line == "" {
-			return false
+			return nil, false, false
 		}
 	}
 
 	// Hosts file entries: address followed by one or more hostnames.
 	if fields := strings.Fields(line); len(fields) >= 2 && isHostsAddress(fields[0]) {
-		added := false
+		out := make([]*dnsRule, 0, len(fields)-1)
 		for _, f := range fields[1:] {
 			if i := strings.IndexByte(f, '#'); i >= 0 {
 				f = f[:i]
 			}
-			if d, ok := normalizeRuleDomain(f); ok {
-				addDomainRule(rs, d, allow, false)
-				added = true
+			d, ok := normalizeDomainName(f)
+			if !ok {
+				continue
 			}
+			out = append(out, &dnsRule{
+				allow:  allow,
+				kind:   ruleExact,
+				domain: d,
+				text:   "hosts:" + d,
+			})
 		}
-		return added
+		return out, false, len(out) > 0
 	}
 
-	// Strip trailing comments on plain entries.
-	if i := strings.IndexByte(line, '#'); i >= 0 {
-		line = strings.TrimSpace(line[:i])
+	pattern := line
+	opts := ""
+	if i := strings.LastIndexByte(line, '$'); i > 0 && i < len(line)-1 && isOptionSuffix(line[i+1:]) {
+		pattern = strings.TrimSpace(line[:i])
+		opts = line[i+1:]
 	}
-	if line == "" {
-		return false
+	if i := strings.IndexByte(pattern, '#'); i >= 0 {
+		pattern = strings.TrimSpace(pattern[:i])
 	}
-
-	// AdGuard/uBlock domain anchor. Anything with options, wildcards, paths or
-	// regex syntax is not a plain domain rule and is skipped.
-	if strings.HasPrefix(line, "||") {
-		rest := line[2:]
-		if i := strings.IndexByte(rest, '^'); i >= 0 {
-			rest = rest[:i]
-		}
-		if rest == "" || strings.ContainsAny(rest, "*$/|") {
-			return false
-		}
-		d, ok := normalizeRuleDomain(rest)
-		if !ok {
-			return false
-		}
-		addDomainRule(rs, d, allow, true)
-		return true
+	if pattern == "" {
+		return nil, false, false
 	}
 
-	if strings.HasPrefix(line, "|") || strings.ContainsAny(line, "*$/^|") {
-		return false
-	}
-
-	d, ok := normalizeRuleDomain(line)
+	kind, domain, re, ok := compileRulePattern(pattern)
 	if !ok {
+		return nil, false, false
+	}
+	r := &dnsRule{allow: allow, kind: kind, domain: domain, re: re}
+	r.text = ruleIdentity(allow, pattern)
+	bad := false
+	if opts != "" {
+		supported, isBadfilter := applyRuleOptions(r, opts)
+		if !supported {
+			return nil, false, false
+		}
+		bad = isBadfilter
+	}
+	return []*dnsRule{r}, bad, true
+}
+
+func ruleIdentity(allow bool, pattern string) string {
+	if allow {
+		return "@@" + strings.ToLower(pattern)
+	}
+	return strings.ToLower(pattern)
+}
+
+// isOptionSuffix reports whether s looks like a comma separated modifier list,
+// which keeps "$" characters inside regular expressions from being mistaken for
+// a modifier separator.
+func isOptionSuffix(s string) bool {
+	if s == "" {
 		return false
 	}
-	addDomainRule(rs, d, allow, false)
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == '=' || r == '~' || r == '.' || r == ',' ||
+			r == '|' || r == ':' || r == '*':
+		default:
+			return false
+		}
+	}
 	return true
+}
+
+// applyRuleOptions applies the "$..." modifiers that make sense at the DNS
+// layer. It reports whether the rule is supported at all and whether it is a
+// $badfilter marker.
+func applyRuleOptions(r *dnsRule, opts string) (supported bool, badfilter bool) {
+	for _, part := range strings.Split(opts, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if strings.HasPrefix(part, "~") {
+			// Negated modifiers ($~third-party and friends) need request
+			// context that a DNS query does not have.
+			return false, false
+		}
+		name, val, hasVal := strings.Cut(part, "=")
+		name = strings.ToLower(strings.TrimSpace(name))
+		val = strings.TrimSpace(val)
+		switch name {
+		case "important":
+			r.important = true
+		case "badfilter":
+			badfilter = true
+		case "document", "all", "network":
+			// Applicable to the whole request, so they apply at the DNS layer.
+		case "dnstype":
+			types, ok := parseDNSTypes(val)
+			if !ok {
+				return false, false
+			}
+			r.dnsTypes = types
+		case "denyallow":
+			r.denyAllow = splitDomainList(val)
+			if len(r.denyAllow) == 0 {
+				return false, false
+			}
+		case "app":
+			r.apps = toSet(splitList(val))
+			if len(r.apps) == 0 {
+				return false, false
+			}
+		default:
+			// Content-type modifiers ($script, $image, ...), $domain,
+			// $path, $third-party, header, cookie, redirect and rewrite
+			// modifiers cannot be evaluated for a DNS query.
+			_ = hasVal
+			return false, false
+		}
+	}
+	return true, badfilter
+}
+
+func parseDNSTypes(val string) (map[dnsmessage.Type]struct{}, bool) {
+	set := make(map[dnsmessage.Type]struct{})
+	for _, n := range splitList(val) {
+		t, ok := dnsTypeByName(n)
+		if !ok {
+			return nil, false
+		}
+		set[t] = struct{}{}
+	}
+	return set, len(set) > 0
+}
+
+func dnsTypeByName(s string) (dnsmessage.Type, bool) {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
+	case "A":
+		return dnsmessage.TypeA, true
+	case "AAAA":
+		return dnsmessage.TypeAAAA, true
+	case "CNAME":
+		return dnsmessage.TypeCNAME, true
+	case "NS":
+		return dnsmessage.TypeNS, true
+	case "SOA":
+		return dnsmessage.TypeSOA, true
+	case "PTR":
+		return dnsmessage.TypePTR, true
+	case "MX":
+		return dnsmessage.TypeMX, true
+	case "TXT":
+		return dnsmessage.TypeTXT, true
+	case "SRV":
+		return dnsmessage.TypeSRV, true
+	case "SVCB":
+		return dnsmessage.TypeSVCB, true
+	case "HTTPS":
+		return dnsmessage.TypeHTTPS, true
+	case "HINFO":
+		return dnsmessage.TypeHINFO, true
+	case "ANY":
+		return dnsmessage.TypeALL, true
+	}
+	return 0, false
+}
+
+func splitList(val string) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(val, func(r rune) bool {
+		return r == '|' || r == ',' || r == '~'
+	}) {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func splitDomainList(val string) []string {
+	var out []string
+	for _, p := range splitList(val) {
+		if d, ok := normalizeDomainName(p); ok {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func toSet(items []string) map[string]struct{} {
+	if len(items) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(items))
+	for _, it := range items {
+		set[it] = struct{}{}
+	}
+	return set
 }
 
 func isHostsAddress(s string) bool {
@@ -455,28 +685,111 @@ func isHostsAddress(s string) bool {
 	return false
 }
 
-func addDomainRule(rs *adBlockRuleSet, domain string, allow, suffix bool) {
-	switch {
-	case allow && suffix:
-		rs.allowSuffix[domain] = struct{}{}
-	case allow:
-		rs.allowExact[domain] = struct{}{}
-	case suffix:
-		rs.suffix[domain] = struct{}{}
-	default:
-		rs.exact[domain] = struct{}{}
+// compileRulePattern turns the pattern part of a rule into a matcher.
+func compileRulePattern(pattern string) (ruleKind, string, *regexp.Regexp, bool) {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return 0, "", nil, false
 	}
+
+	// Regular expression rule: /re/
+	if strings.HasPrefix(pattern, "/") && strings.HasSuffix(pattern, "/") && len(pattern) > 2 {
+		re, err := regexp.Compile("(?i)" + pattern[1:len(pattern)-1])
+		if err != nil {
+			return 0, "", nil, false
+		}
+		return ruleRegex, "", re, true
+	}
+
+	// Domain anchor: ||example.com^
+	if strings.HasPrefix(pattern, "||") {
+		rest := pattern[2:]
+		if strings.IndexByte(rest, '/') >= 0 {
+			// URL path rules cannot be evaluated for a DNS query.
+			return 0, "", nil, false
+		}
+		if i := strings.IndexByte(rest, '|'); i >= 0 {
+			rest = rest[:i]
+		}
+		rest = strings.TrimSuffix(rest, "^")
+		if rest == "" {
+			return 0, "", nil, false
+		}
+		if strings.Contains(rest, "*") {
+			re, err := wildcardRegex(rest, true)
+			if err != nil {
+				return 0, "", nil, false
+			}
+			return ruleRegex, "", re, true
+		}
+		d, ok := normalizeDomainName(rest)
+		if !ok {
+			return 0, "", nil, false
+		}
+		return ruleSuffix, d, nil, true
+	}
+
+	// Exact anchor: |example.com^
+	if strings.HasPrefix(pattern, "|") {
+		rest := strings.Trim(pattern, "|")
+		rest = strings.TrimPrefix(rest, "http://")
+		rest = strings.TrimPrefix(rest, "https://")
+		if strings.IndexByte(rest, '/') >= 0 {
+			return 0, "", nil, false
+		}
+		rest = strings.TrimSuffix(rest, "^")
+		d, ok := normalizeDomainName(rest)
+		if !ok {
+			return 0, "", nil, false
+		}
+		return ruleExact, d, nil, true
+	}
+
+	// Plain rule: strip the separator anchor; it matches anywhere in the host.
+	plain := strings.TrimSuffix(pattern, "^")
+	if strings.IndexByte(plain, '/') >= 0 {
+		return 0, "", nil, false
+	}
+	if strings.Contains(plain, "*") {
+		re, err := wildcardRegex(plain, false)
+		if err != nil {
+			return 0, "", nil, false
+		}
+		return ruleRegex, "", re, true
+	}
+	d, ok := normalizeDomainName(plain)
+	if !ok {
+		return 0, "", nil, false
+	}
+	return ruleSubstring, d, nil, true
 }
 
-// normalizeRuleDomain validates a rule's domain and normalizes it.
-func normalizeRuleDomain(s string) (string, bool) {
+// wildcardRegex turns a pattern containing "*" into a regular expression.
+// suffixAnchor keeps the match at a label boundary for "||" rules.
+func wildcardRegex(pattern string, suffixAnchor bool) (*regexp.Regexp, error) {
+	var b strings.Builder
+	if suffixAnchor {
+		b.WriteString(`(^|\.)`)
+	}
+	for i, part := range strings.Split(strings.ToLower(pattern), "*") {
+		if i > 0 {
+			b.WriteString(".*")
+		}
+		b.WriteString(regexp.QuoteMeta(part))
+	}
+	if suffixAnchor {
+		b.WriteString(`$`)
+	}
+	return regexp.Compile("(?i)" + b.String())
+}
+
+// normalizeDomainName validates and normalizes a hostname.
+func normalizeDomainName(s string) (string, bool) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	s = strings.TrimSuffix(s, ".")
-	if len(s) < 3 || len(s) > 253 || !strings.Contains(s, ".") {
+	s = strings.TrimPrefix(s, ".")
+	if s == "" || len(s) > 253 || strings.Contains(s, "..") || strings.HasPrefix(s, "-") {
 		return "", false
-	}
-	if strings.HasPrefix(s, ".") || strings.HasPrefix(s, "*.") {
-		s = strings.TrimPrefix(strings.TrimPrefix(s, "*"), ".")
 	}
 	for _, r := range s {
 		switch {

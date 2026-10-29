@@ -72,6 +72,7 @@ import com.tailscale.ipn.ui.util.set
 import com.tailscale.ipn.ui.util.universalFit
 import com.tailscale.ipn.ui.view.AboutView
 import com.tailscale.ipn.ui.view.AdBlockAppsView
+import com.tailscale.ipn.ui.view.AdBlockRulesView
 import com.tailscale.ipn.ui.view.AdBlockView
 import com.tailscale.ipn.ui.view.AppBottomBar
 import com.tailscale.ipn.ui.view.BugReportView
@@ -419,6 +420,7 @@ class MainActivity : ComponentActivity() {
                 AdBlockView(
                     viewModel = viewModel,
                     navigation = mainViewNav,
+                    onNavigateToRules = { navController.navigate("adblockRules") },
                     onNavigateToApps = { navController.navigate("adblockApps") },
                 )
               }
@@ -427,6 +429,9 @@ class MainActivity : ComponentActivity() {
               }
               composable("adblockApps") {
                 AdBlockAppsView(onBack = { navController.popBackStack() })
+              }
+              composable("adblockRules") {
+                AdBlockRulesView(onBack = { navController.popBackStack() })
               }
               composable("search") {
                 val autoFocus = viewModel.autoFocusSearch

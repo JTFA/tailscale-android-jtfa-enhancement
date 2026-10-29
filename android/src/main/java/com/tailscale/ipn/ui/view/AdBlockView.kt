@@ -10,11 +10,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -37,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tailscale.ipn.AdBlock
 import com.tailscale.ipn.AdBlockStats
@@ -47,22 +47,27 @@ import com.tailscale.ipn.ui.viewModel.MainViewModel
 import kotlinx.coroutines.delay
 
 /**
- * AdBlock tab. Like the Tailscale tab, the header carries the VPN master switch; this page only
- * owns the filtering switch. While the tunnel is down the page shows the not-connected state.
+ * AdBlock tab. The header carries the VPN master switch; this page owns the filtering switch. The
+ * rules themselves are completely user supplied, so nothing is blocked until a list is added.
  */
 @Composable
 fun AdBlockView(
     viewModel: MainViewModel,
     navigation: MainViewNavigation,
+    onNavigateToRules: () -> Unit = {},
     onNavigateToApps: () -> Unit = {},
 ) {
   val state by viewModel.ipnState.collectAsState()
   var enabled by remember { mutableStateOf(App.get().isAdBlockEnabled()) }
   var stats by remember { mutableStateOf(AdBlockStats()) }
+  var ruleCount by remember { mutableStateOf(App.get().adblockRuleCount()) }
+  var excludedApps by remember { mutableStateOf(App.get().adblockDisabledPackages().size) }
 
   LaunchedEffect(state) {
     while (true) {
       stats = AdBlock.stats()
+      ruleCount = App.get().adblockRuleCount()
+      excludedApps = App.get().adblockDisabledPackages().size
       delay(1000)
     }
   }
@@ -78,11 +83,14 @@ fun AdBlockView(
           AdBlockContent(
               enabled = enabled,
               stats = stats,
+              ruleCount = ruleCount,
+              excludedApps = excludedApps,
               onToggle = {
                 enabled = it
                 App.get().setAdBlockEnabled(it)
                 App.get().syncAdBlockSettings()
               },
+              onNavigateToRules = onNavigateToRules,
               onNavigateToApps = onNavigateToApps,
           )
       else ->
@@ -97,9 +105,13 @@ fun AdBlockView(
 private fun AdBlockContent(
     enabled: Boolean,
     stats: AdBlockStats,
+    ruleCount: Int,
+    excludedApps: Int,
     onToggle: (Boolean) -> Unit,
+    onNavigateToRules: () -> Unit,
     onNavigateToApps: () -> Unit,
 ) {
+  val filtering = enabled && ruleCount > 0
   Column(
       modifier =
           Modifier.fillMaxSize()
@@ -108,36 +120,62 @@ private fun AdBlockContent(
       verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-      Column(modifier = Modifier.padding(14.dp)) {
+      Column(modifier = Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+          StatusDot(active = filtering)
+          Spacer(modifier = Modifier.width(8.dp))
           Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.adblock_ad_blocking),
-                style = MaterialTheme.typography.titleSmall,
+                text =
+                    stringResource(
+                        when {
+                          !enabled -> R.string.adblock_status_paused
+                          ruleCount == 0 -> R.string.adblock_status_no_rules
+                          else -> R.string.adblock_status_running
+                        }
+                    ),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = stringResource(R.string.adblock_active_while_connected),
-                style = MaterialTheme.typography.bodySmall,
+                text = stringResource(R.string.adblock_subtitle, ruleCount),
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
           }
           Switch(checked = enabled, onCheckedChange = onToggle)
         }
+        Spacer(modifier = Modifier.size(10.dp))
+        InfoRow(label = stringResource(R.string.adblock_info_rules), value = ruleCount.toString())
+        InfoRow(
+            label = stringResource(R.string.adblock_info_apps),
+            value =
+                if (excludedApps == 0) stringResource(R.string.adblock_apps_all)
+                else stringResource(R.string.adblock_apps_excluded, excludedApps),
+        )
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-        Row {
-          StatCell(
-              value = stats.todayBlocked.toString(),
-              label = stringResource(R.string.adblock_today),
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          TrafficDonut(
+              received = stats.todayBlocked,
+              sent = (stats.todayQueries - stats.todayBlocked).coerceAtLeast(0),
+          )
+          Spacer(modifier = Modifier.width(18.dp))
+          MetricColumn(
+              title = stringResource(R.string.adblock_blocked_title),
+              rows =
+                  listOf(
+                      stringResource(R.string.metric_today) to stats.todayBlocked.toString(),
+                      stringResource(R.string.metric_total) to stats.totalBlocked.toString(),
+                  ),
               modifier = Modifier.weight(1f),
           )
-          StatCell(
-              value = stats.totalBlocked.toString(),
-              label = stringResource(R.string.adblock_total),
-              modifier = Modifier.weight(1f),
-          )
-          StatCell(
-              value = stats.apps.toString(),
-              label = stringResource(R.string.adblock_apps),
+          MetricColumn(
+              title = stringResource(R.string.adblock_queries_title),
+              rows =
+                  listOf(
+                      stringResource(R.string.metric_today) to stats.todayQueries.toString(),
+                      stringResource(R.string.metric_total) to stats.totalQueries.toString(),
+                  ),
               modifier = Modifier.weight(1f),
           )
         }
@@ -145,18 +183,37 @@ private fun AdBlockContent(
     }
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-      ListItem(
-          headlineContent = { Text(stringResource(R.string.adblock_app_filtering)) },
-          supportingContent = {
-            Text(
-                text = stringResource(R.string.adblock_app_filtering_desc),
-                style = MaterialTheme.typography.bodySmall,
-            )
-          },
-          trailingContent = { Text("\u203A", style = MaterialTheme.typography.titleMedium) },
-          colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-          modifier = Modifier.clickable { onNavigateToApps() },
-      )
+      Column {
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.adblock_custom_rules)) },
+            supportingContent = {
+              Text(
+                  text =
+                      if (ruleCount == 0) stringResource(R.string.adblock_custom_rules_empty)
+                      else stringResource(R.string.adblock_custom_rules_count, ruleCount),
+                  style = MaterialTheme.typography.bodySmall,
+              )
+            },
+            trailingContent = { Text("\u203A", style = MaterialTheme.typography.titleMedium) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.clickable { onNavigateToRules() },
+        )
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.adblock_app_filtering)) },
+            supportingContent = {
+              Text(
+                  text =
+                      if (excludedApps == 0) stringResource(R.string.adblock_apps_all)
+                      else stringResource(R.string.adblock_apps_excluded, excludedApps),
+                  style = MaterialTheme.typography.bodySmall,
+              )
+            },
+            trailingContent = { Text("\u203A", style = MaterialTheme.typography.titleMedium) },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            modifier = Modifier.clickable { onNavigateToApps() },
+        )
+      }
     }
 
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
@@ -165,15 +222,9 @@ private fun AdBlockContent(
             text = stringResource(R.string.adblock_dns_note_title),
             style = MaterialTheme.typography.bodySmall,
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.size(4.dp))
         Text(
             text = stringResource(R.string.adblock_dns_note),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.adblock_rules_credit),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -181,17 +232,5 @@ private fun AdBlockContent(
     }
 
     Spacer(modifier = Modifier.size(8.dp))
-  }
-}
-
-@Composable
-private fun StatCell(value: String, label: String, modifier: Modifier = Modifier) {
-  Column(modifier = modifier) {
-    Text(text = value, style = MaterialTheme.typography.titleMedium)
-    Text(
-        text = label,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
   }
 }

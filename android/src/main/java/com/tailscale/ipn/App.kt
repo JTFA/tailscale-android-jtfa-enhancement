@@ -87,7 +87,7 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
   private lateinit var connectivityManager: ConnectivityManager
   private lateinit var mdmChangeReceiver: MDMSettingsChangedReceiver
   private lateinit var app: libtailscale.Application
-  private val adBlockRulesLoaded = java.util.concurrent.atomic.AtomicBoolean(false)
+  private val adBlockUidInstalled = java.util.concurrent.atomic.AtomicBoolean(false)
   override val viewModelStore: ViewModelStore
     get() = appViewModelStore
 
@@ -134,9 +134,9 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     }
   }
 
-  /** Loads the bundled DNS block list into the native engine once, off the main thread. */
-  fun ensureAdBlockRulesLoaded() {
-    if (!adBlockRulesLoaded.compareAndSet(false, true)) {
+  /** Installs the app attribution hook exactly once. */
+  fun installAdBlockUidLookup() {
+    if (!adBlockUidInstalled.compareAndSet(false, true)) {
       return
     }
     try {
@@ -144,20 +144,27 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     } catch (e: Exception) {
       TSLog.e(TAG, "adblock: installing UID lookup failed", e)
     }
-    Thread(
-            {
-              try {
-                val text = assets.open("adblock_rules.txt").bufferedReader().use { it.readText() }
-                val count = app.setAdBlockRules(text)
-                TSLog.d(TAG, "adblock: loaded $count rules")
-              } catch (e: Throwable) {
-                TSLog.e(TAG, "adblock: loading rules failed", e)
-                adBlockRulesLoaded.set(false)
-              }
-            },
-            "adblock-rules",
-        )
-        .start()
+  }
+
+  /**
+   * Parses and installs the user's filter list in the native engine, then remembers how many rules
+   * are active. Safe to call from a background thread; returns -1 when parsing failed.
+   */
+  fun applyAdBlockRules(text: String): Int {
+    installAdBlockUidLookup()
+    return try {
+      val count = app.setAdBlockRules(text).toInt()
+      setAdblockRuleCount(count)
+      count
+    } catch (e: Exception) {
+      TSLog.e(TAG, "adblock: loading rules failed", e)
+      -1
+    }
+  }
+
+  /** Reapplies the stored filter list on a background thread. */
+  fun applyStoredAdBlockRules() {
+    Thread({ applyAdBlockRules(adblockRulesText()) }, "adblock-rules").start()
   }
 
   override fun onCreate() {
@@ -308,7 +315,7 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     Notifier.start(applicationScope)
     try {
       syncAdBlockSettings()
-      ensureAdBlockRulesLoaded()
+      applyStoredAdBlockRules()
     } catch (t: Throwable) {
       TSLog.e(TAG, "adblock: startup failed", t)
     }
@@ -664,8 +671,13 @@ open class UninitializedApp : Application() {
     private const val HIDE_FROM_RECENTS_KEY = "hideFromRecents"
     private const val LAST_WANT_RUNNING_KEY = "lastWantRunning"
     private const val ADBLOCK_ENABLED_KEY = "adblockEnabled"
+    private const val ADBLOCK_RULES_KEY = "adblockRules"
+    private const val ADBLOCK_RULE_COUNT_KEY = "adblockRuleCount"
     private const val ADBLOCK_DISABLED_APPS_KEY = "adblockDisabledApps"
     private const val PROXY_ENABLED_KEY = "proxyEnabled"
+    private const val PROXY_HTTP_ENABLED_KEY = "proxyHttpEnabled"
+    private const val PROXY_SOCKS_ENABLED_KEY = "proxySocksEnabled"
+    private const val PROXY_PAC_ENABLED_KEY = "proxyPacEnabled"
     private const val PROXY_HTTP_PORT_KEY = "proxyHttpPort"
     private const val PROXY_SOCKS_PORT_KEY = "proxySocksPort"
     private const val PROXY_PAC_PORT_KEY = "proxyPacPort"
@@ -744,11 +756,29 @@ open class UninitializedApp : Application() {
    * VPN master switch: flipping this never starts or stops the tunnel.
    */
   fun isAdBlockEnabled(): Boolean {
-    return getUnencryptedPrefs().getBoolean(ADBLOCK_ENABLED_KEY, true)
+    return getUnencryptedPrefs().getBoolean(ADBLOCK_ENABLED_KEY, false)
   }
 
   fun setAdBlockEnabled(enabled: Boolean) {
     getUnencryptedPrefs().edit().putBoolean(ADBLOCK_ENABLED_KEY, enabled).apply()
+  }
+
+  /** The user's AdGuard filter list. Empty by default: nothing is blocked until they add rules. */
+  fun adblockRulesText(): String {
+    return getUnencryptedPrefs().getString(ADBLOCK_RULES_KEY, "") ?: ""
+  }
+
+  fun setAdblockRulesText(text: String) {
+    getUnencryptedPrefs().edit().putString(ADBLOCK_RULES_KEY, text).apply()
+  }
+
+  /** Number of rules the native engine accepted from the last parse. */
+  fun adblockRuleCount(): Int {
+    return getUnencryptedPrefs().getInt(ADBLOCK_RULE_COUNT_KEY, 0)
+  }
+
+  fun setAdblockRuleCount(count: Int) {
+    getUnencryptedPrefs().edit().putInt(ADBLOCK_RULE_COUNT_KEY, count).apply()
   }
 
   /**
@@ -797,6 +827,25 @@ open class UninitializedApp : Application() {
   fun proxySocksPort(): Int = getUnencryptedPrefs().getInt(PROXY_SOCKS_PORT_KEY, 1080)
 
   fun proxyPacPort(): Int = getUnencryptedPrefs().getInt(PROXY_PAC_PORT_KEY, 8081)
+
+  /** Each protocol starts disabled: nothing listens until the user turns it on. */
+  fun proxyHttpEnabled(): Boolean = getUnencryptedPrefs().getBoolean(PROXY_HTTP_ENABLED_KEY, false)
+
+  fun proxySocksEnabled(): Boolean =
+      getUnencryptedPrefs().getBoolean(PROXY_SOCKS_ENABLED_KEY, false)
+
+  fun proxyPacEnabled(): Boolean = getUnencryptedPrefs().getBoolean(PROXY_PAC_ENABLED_KEY, false)
+
+  fun setProxyProtocolEnabled(protocol: String, enabled: Boolean) {
+    val key =
+        when (protocol) {
+          "http" -> PROXY_HTTP_ENABLED_KEY
+          "socks" -> PROXY_SOCKS_ENABLED_KEY
+          "pac" -> PROXY_PAC_ENABLED_KEY
+          else -> return
+        }
+    getUnencryptedPrefs().edit().putBoolean(key, enabled).apply()
+  }
 
   fun setProxyPorts(http: Int, socks: Int, pac: Int) {
     getUnencryptedPrefs()
