@@ -21,6 +21,7 @@ import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContract
@@ -314,16 +315,7 @@ class MainActivity : ComponentActivity() {
                 bottomBar = {
                   if (bottomTabs.any { it.route == currentRoute }) {
                     AppBottomBar(currentRoute) { target ->
-                      when {
-                        target == currentRoute -> {}
-                        target == "main" -> navController.popBackStack("main", false)
-                        else ->
-                            navController.navigate(target) {
-                              popUpTo("main") { saveState = true }
-                              launchSingleTop = true
-                              restoreState = true
-                            }
-                      }
+                      switchTab(navController, currentRoute, target)
                     }
                   }
                 },
@@ -474,6 +466,7 @@ class MainActivity : ComponentActivity() {
                 )
               }
               composable("adblock") {
+                BackHandler { navController.popBackStack("main", false) }
                 AdBlockView(
                     viewModel = viewModel,
                     navigation = mainViewNav,
@@ -482,6 +475,7 @@ class MainActivity : ComponentActivity() {
                 )
               }
               composable("proxy") {
+                BackHandler { navController.popBackStack("main", false) }
                 ProxyView(viewModel = viewModel, navigation = mainViewNav)
               }
               composable("adblockApps") {
@@ -767,4 +761,22 @@ private fun tabDelta(initial: NavBackStackEntry, target: NavBackStackEntry): Int
   val from = tabRoutes.indexOf(initial.destination.route)
   val to = tabRoutes.indexOf(target.destination.route)
   return if (from >= 0 && to >= 0 && from != to) to - from else null
+}
+
+/**
+ * Switches between the three bottom bar tabs.
+ *
+ * The tab that goes out of view is left on the back stack. Navigation Compose only animates while
+ * the outgoing destination is still one of its visible entries; popping it in the same navigate()
+ * call (popUpTo + saveState/restoreState) makes the switch jump instead of slide. Keeping every
+ * tab entry alive also preserves each tab's state without saved-state bookkeeping.
+ */
+private fun switchTab(navController: NavHostController, currentRoute: String?, target: String) {
+  if (target == currentRoute) return
+  val alreadyOpen = navController.currentBackStack.value.any { it.destination.route == target }
+  if (alreadyOpen) {
+    navController.popBackStack(target, inclusive = false)
+  } else {
+    navController.navigate(target) { launchSingleTop = true }
+  }
 }
