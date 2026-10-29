@@ -763,17 +763,22 @@ private fun tabDelta(initial: NavBackStackEntry, target: NavBackStackEntry): Int
 /**
  * Switches between the three bottom bar tabs.
  *
- * The tab that goes out of view is left on the back stack. Navigation Compose only animates while
- * the outgoing destination is still one of its visible entries; popping it in the same navigate()
- * call (popUpTo + saveState/restoreState) makes the switch jump instead of slide. Keeping every
- * tab entry alive also preserves each tab's state without saved-state bookkeeping.
+ * Tabs replace each other instead of stacking: the back stack always holds exactly one tab, so
+ * system back from any tab leaves the app for the launcher instead of walking back through the
+ * tabs that were open before it. Each tab's state is still preserved across switches through
+ * saveState/restoreState.
+ *
+ * The outgoing tab stays alive while the slide runs. Navigation Compose keeps a popped entry
+ * visible until its exit animation finishes, which is what lets the new page slide in over it.
  */
 private fun switchTab(navController: NavHostController, currentRoute: String?, target: String) {
   if (target == currentRoute) return
-  val alreadyOpen = navController.currentBackStack.value.any { it.destination.route == target }
-  if (alreadyOpen) {
-    navController.popBackStack(target, inclusive = false)
-  } else {
-    navController.navigate(target) { launchSingleTop = true }
+  navController.navigate(target) {
+    popUpTo(currentRoute ?: "main") {
+      inclusive = true
+      saveState = true
+    }
+    restoreState = true
+    launchSingleTop = true
   }
 }
