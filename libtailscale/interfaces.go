@@ -160,6 +160,10 @@ type Application interface {
 	// synchronously; callers should invoke it off the UI thread.
 	SetAdBlockRules(rules string) (ruleCount int64, err error)
 
+	// CountAdBlockRules parses the given filter text and reports how many rules
+	// apply at the DNS layer, without changing the active rule set.
+	CountAdBlockRules(rules string) (ruleCount int64, err error)
+
 	// SetAdBlockIgnoredPackages sets the package names whose DNS queries are
 	// never blocked. The argument is a newline-separated list.
 	SetAdBlockIgnoredPackages(packages string)

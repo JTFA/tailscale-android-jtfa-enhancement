@@ -921,6 +921,13 @@ func (a *App) SetAdBlockRules(rules string) (int64, error) {
 	return rs.count, nil
 }
 
+// CountAdBlockRules reports how many rules apply at the DNS layer without
+// touching the active rule set. Used by the UI to validate a downloaded list
+// before it is combined with the others.
+func (a *App) CountAdBlockRules(rules string) (int64, error) {
+	return parseAdBlockRules(rules).count, nil
+}
+
 func (a *App) SetAdBlockIgnoredPackages(packages string) {
 	set := make(map[string]struct{})
 	for _, line := range strings.Split(packages, "\n") {

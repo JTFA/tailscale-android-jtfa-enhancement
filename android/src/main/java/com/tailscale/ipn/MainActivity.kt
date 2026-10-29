@@ -54,6 +54,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavHostController
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -332,28 +333,84 @@ class MainActivity : ComponentActivity() {
                   startDestination = "main",
                   modifier = Modifier.padding(innerPadding),
                 enterTransition = {
-                  slideInHorizontally(
-                      animationSpec = tween(250, easing = LinearOutSlowInEasing),
-                      initialOffsetX = { it },
-                  ) + fadeIn(animationSpec = tween(500, easing = LinearOutSlowInEasing))
+                  val delta = tabDelta(initialState, targetState)
+                  when {
+                    delta == null ->
+                        slideInHorizontally(
+                            animationSpec = tween(250, easing = LinearOutSlowInEasing),
+                            initialOffsetX = { it },
+                        ) + fadeIn(animationSpec = tween(250, easing = LinearOutSlowInEasing))
+                    delta > 0 ->
+                        slideInHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            initialOffsetX = { it },
+                        ) + fadeIn(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                    else ->
+                        slideInHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            initialOffsetX = { -it },
+                        ) + fadeIn(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                  }
                 },
                 exitTransition = {
-                  slideOutHorizontally(
-                      animationSpec = tween(250, easing = LinearOutSlowInEasing),
-                      targetOffsetX = { -it },
-                  ) + fadeOut(animationSpec = tween(500, easing = LinearOutSlowInEasing))
+                  val delta = tabDelta(initialState, targetState)
+                  when {
+                    delta == null ->
+                        slideOutHorizontally(
+                            animationSpec = tween(250, easing = LinearOutSlowInEasing),
+                            targetOffsetX = { -it },
+                        ) + fadeOut(animationSpec = tween(250, easing = LinearOutSlowInEasing))
+                    delta > 0 ->
+                        slideOutHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            targetOffsetX = { -it },
+                        ) + fadeOut(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                    else ->
+                        slideOutHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            targetOffsetX = { it },
+                        ) + fadeOut(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                  }
                 },
                 popEnterTransition = {
-                  slideInHorizontally(
-                      animationSpec = tween(250, easing = LinearOutSlowInEasing),
-                      initialOffsetX = { -it },
-                  ) + fadeIn(animationSpec = tween(500, easing = LinearOutSlowInEasing))
+                  val delta = tabDelta(initialState, targetState)
+                  when {
+                    delta == null ->
+                        slideInHorizontally(
+                            animationSpec = tween(250, easing = LinearOutSlowInEasing),
+                            initialOffsetX = { -it },
+                        ) + fadeIn(animationSpec = tween(250, easing = LinearOutSlowInEasing))
+                    delta > 0 ->
+                        slideInHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            initialOffsetX = { it },
+                        ) + fadeIn(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                    else ->
+                        slideInHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            initialOffsetX = { -it },
+                        ) + fadeIn(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                  }
                 },
                 popExitTransition = {
-                  slideOutHorizontally(
-                      animationSpec = tween(250, easing = LinearOutSlowInEasing),
-                      targetOffsetX = { it },
-                  ) + fadeOut(animationSpec = tween(500, easing = LinearOutSlowInEasing))
+                  val delta = tabDelta(initialState, targetState)
+                  when {
+                    delta == null ->
+                        slideOutHorizontally(
+                            animationSpec = tween(250, easing = LinearOutSlowInEasing),
+                            targetOffsetX = { it },
+                        ) + fadeOut(animationSpec = tween(250, easing = LinearOutSlowInEasing))
+                    delta > 0 ->
+                        slideOutHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            targetOffsetX = { -it },
+                        ) + fadeOut(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                    else ->
+                        slideOutHorizontally(
+                            animationSpec = tween(220, easing = LinearOutSlowInEasing),
+                            targetOffsetX = { it },
+                        ) + fadeOut(animationSpec = tween(220, easing = LinearOutSlowInEasing))
+                  }
                 },
             ) {
               fun backTo(route: String): () -> Unit = {
@@ -697,4 +754,17 @@ class VpnPermissionContract : ActivityResultContract<Intent, Boolean>() {
   override fun parseResult(resultCode: Int, intent: Intent?): Boolean {
     return resultCode == Activity.RESULT_OK
   }
+}
+
+/**
+ * Order of the bottom bar destinations. Used to give tab switches the direction users expect:
+ * moving right slides the new page in from the right, moving left from the left.
+ */
+private val tabRoutes = bottomTabs.map { it.route }
+
+/** Returns target index - initial index when both destinations are tabs, otherwise null. */
+private fun tabDelta(initial: NavBackStackEntry, target: NavBackStackEntry): Int? {
+  val from = tabRoutes.indexOf(initial.destination.route)
+  val to = tabRoutes.indexOf(target.destination.route)
+  return if (from >= 0 && to >= 0 && from != to) to - from else null
 }

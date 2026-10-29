@@ -162,9 +162,26 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     }
   }
 
-  /** Reapplies the stored filter list on a background thread. */
+  /** Reapplies the last applied rule text (downloaded lists + custom rules) on a background thread. */
   fun applyStoredAdBlockRules() {
-    Thread({ applyAdBlockRules(adblockRulesText()) }, "adblock-rules").start()
+    Thread(
+            {
+              val combined = AdBlockSources.readCombinedCache(this) ?: adblockRulesText()
+              applyAdBlockRules(combined)
+            },
+            "adblock-rules",
+        )
+        .start()
+  }
+
+  /** Counts the DNS-usable rules in a list without touching the active rule set. */
+  fun countAdBlockRules(text: String): Int {
+    return try {
+      app.countAdBlockRules(text).toInt()
+    } catch (e: Exception) {
+      TSLog.e(TAG, "adblock: counting rules failed", e)
+      -1
+    }
   }
 
   override fun onCreate() {
