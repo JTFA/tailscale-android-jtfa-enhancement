@@ -21,22 +21,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tailscale.ipn.R
-import kotlin.math.max
 
-/** Green used for "active" and for the received half of the traffic donut. */
+/** Green used for "active". */
 internal val ActiveGreen = Color(0xFF2E9E5B)
-
-/** Orange used for the sent half of the traffic donut. */
-internal val SentOrange = Color(0xFFE8710A)
 
 /** Small colored dot that fronts the status headline. */
 @Composable
@@ -60,57 +52,8 @@ fun InfoRow(label: String, value: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Two arc donut: received in green, sent in orange, drawn on a muted track. The arcs only reflect
- * the split of the totals, which is all the proxy reports.
+ * One titled column of label/value figures.
  */
-@Composable
-fun TrafficDonut(received: Long, sent: Long, modifier: Modifier = Modifier) {
-  val total = max(received + sent, 1L)
-  val receivedSweep = 360f * received / total
-  val sentSweep = 360f * sent / total
-  val track = MaterialTheme.colorScheme.surfaceVariant
-
-  Canvas(modifier.size(78.dp)) {
-    val stroke = 10.dp.toPx()
-    val inset = stroke / 2
-    val arcSize = Size(size.width - stroke, size.height - stroke)
-    drawArc(
-        color = track,
-        startAngle = 0f,
-        sweepAngle = 360f,
-        useCenter = false,
-        topLeft = Offset(inset, inset),
-        size = arcSize,
-        style = Stroke(width = stroke),
-    )
-    var start = -90f
-    if (receivedSweep > 6f) {
-      drawArc(
-          color = ActiveGreen,
-          startAngle = start + 2f,
-          sweepAngle = receivedSweep - 4f,
-          useCenter = false,
-          topLeft = Offset(inset, inset),
-          size = arcSize,
-          style = Stroke(width = stroke, cap = StrokeCap.Round),
-      )
-    }
-    start += receivedSweep
-    if (sentSweep > 6f) {
-      drawArc(
-          color = SentOrange,
-          startAngle = start + 2f,
-          sweepAngle = sentSweep - 4f,
-          useCenter = false,
-          topLeft = Offset(inset, inset),
-          size = arcSize,
-          style = Stroke(width = stroke, cap = StrokeCap.Round),
-      )
-    }
-  }
-}
-
-/** One titled column of label/value figures. */
 @Composable
 fun MetricColumn(
     title: String,

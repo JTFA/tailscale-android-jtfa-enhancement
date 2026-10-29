@@ -286,9 +286,10 @@ private fun ProxyContent(
                 },
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          TrafficDonut(received = status.bytesUp, sent = status.bytesDown)
-          Spacer(modifier = Modifier.width(18.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
           MetricColumn(
               title = stringResource(R.string.proxy_bytes_up),
               rows =

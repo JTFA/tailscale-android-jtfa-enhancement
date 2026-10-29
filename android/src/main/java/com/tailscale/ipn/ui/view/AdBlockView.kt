@@ -156,12 +156,10 @@ private fun AdBlockContent(
                 else stringResource(R.string.adblock_apps_excluded, excludedApps),
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          TrafficDonut(
-              received = stats.todayBlocked,
-              sent = (stats.todayQueries - stats.todayBlocked).coerceAtLeast(0),
-          )
-          Spacer(modifier = Modifier.width(18.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
           MetricColumn(
               title = stringResource(R.string.adblock_blocked_title),
               rows =
