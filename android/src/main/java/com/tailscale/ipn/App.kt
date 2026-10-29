@@ -95,6 +95,17 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
   var healthNotifier: HealthNotifier? = null
   lateinit var favoritesManager: FavoritesManager
 
+  // Creating EncryptedSharedPreferences builds a MasterKey and decrypts the whole prefs file.
+  // That costs tens to hundreds of milliseconds, so keep one instance for the app's lifetime
+  // instead of rebuilding it on every read (a rebuild used to happen on every proxy page
+  // recomposition, which is on the main thread and breaks in-flight animations).
+  @Volatile private var encryptedPrefs: SharedPreferences? = null
+
+  // Proxy credentials are read from the keystore, which is too slow for composition. Cache the
+  // values in memory after the first (background) read so the UI never touches the keystore.
+  @Volatile private var proxyUsernameCache: String? = null
+  @Volatile private var proxyPasswordCache: String? = null
+
   override fun getPlatformDNSConfig(): String = dns.dnsConfigAsString
 
   override fun getInstallSource(): String = AppSourceChecker.getInstallSource(this)
@@ -395,14 +406,39 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
 
   @Throws(IOException::class, GeneralSecurityException::class)
   fun getEncryptedPrefs(): SharedPreferences {
-    val key = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
-    return EncryptedSharedPreferences.create(
-        this,
-        "secret_shared_prefs",
-        key,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    encryptedPrefs?.let {
+      return it
+    }
+    synchronized(this) {
+      encryptedPrefs?.let {
+        return it
+      }
+      val key = MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+      val prefs =
+          EncryptedSharedPreferences.create(
+              this,
+              "secret_shared_prefs",
+              key,
+              EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+              EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+          )
+      encryptedPrefs = prefs
+      return prefs
+    }
+  }
+
+  /** Proxy username, cached in memory after the first keystore read. */
+  fun cachedProxyUsername(): String =
+      proxyUsernameCache ?: readProxyCredential(PROXY_USERNAME_KEY).also { proxyUsernameCache = it }
+
+  /** Proxy password, cached in memory after the first keystore read. */
+  fun cachedProxyPassword(): String =
+      proxyPasswordCache ?: readProxyCredential(PROXY_PASSWORD_KEY).also { proxyPasswordCache = it }
+
+  fun storeProxyCredentials(username: String, password: String) {
+    writeProxyCredentials(username, password)
+    proxyUsernameCache = username
+    proxyPasswordCache = password
   }
 
   fun readProxyCredential(key: String): String {
@@ -889,12 +925,12 @@ open class UninitializedApp : Application() {
     getUnencryptedPrefs().edit().putString(PROXY_EGRESS_KEY, egress).apply()
   }
 
-  fun proxyUsername(): String = App.get().readProxyCredential(PROXY_USERNAME_KEY)
+  fun proxyUsername(): String = App.get().cachedProxyUsername()
 
-  fun proxyPassword(): String = App.get().readProxyCredential(PROXY_PASSWORD_KEY)
+  fun proxyPassword(): String = App.get().cachedProxyPassword()
 
   fun setProxyCredentials(username: String, password: String) {
-    App.get().writeProxyCredentials(username, password)
+    App.get().storeProxyCredentials(username, password)
   }
 
   /** Whether the VPN was wanted (connected) the last time the app persisted its state. */

@@ -7,6 +7,7 @@ import com.tailscale.ipn.ui.notifier.Notifier
 import com.tailscale.ipn.util.TSLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -35,6 +36,18 @@ object ProxyManager {
 
   @Volatile private var running = false
   @Volatile private var observed = false
+
+  private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+  /** Starts or stops the proxy without blocking the caller (the UI thread on toggles). */
+  fun applyAsync() {
+    ioScope.launch { apply() }
+  }
+
+  /** Restarts the proxy without blocking the caller (the UI thread on toggles). */
+  fun restartAsync() {
+    ioScope.launch { restart() }
+  }
 
   fun observe(scope: CoroutineScope) {
     if (observed) return

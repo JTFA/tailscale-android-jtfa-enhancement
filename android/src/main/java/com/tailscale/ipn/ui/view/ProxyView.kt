@@ -38,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +55,10 @@ import com.tailscale.ipn.R
 import com.tailscale.ipn.ui.model.Ipn
 import com.tailscale.ipn.ui.notifier.Notifier
 import com.tailscale.ipn.ui.viewModel.MainViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 
 /**
@@ -77,6 +81,18 @@ fun ProxyView(viewModel: MainViewModel, navigation: MainViewNavigation) {
   var editingProtocol by remember { mutableStateOf<ProtocolKind?>(null) }
   var showingEgress by remember { mutableStateOf(false) }
 
+  // The proxy credentials live in EncryptedSharedPreferences, which is far too slow to read during
+  // composition: doing so blocked the main thread right when the tab switch animation was running
+  // and made the page snap into place. Load them once, off the main thread, and cache them in state.
+  var authUser by remember { mutableStateOf<String?>(null) }
+  var authPass by remember { mutableStateOf<String?>(null) }
+  LaunchedEffect(Unit) {
+    val (user, pass) =
+        withContext(Dispatchers.IO) { App.get().proxyUsername() to App.get().proxyPassword() }
+    authUser = user
+    authPass = pass
+  }
+
   LaunchedEffect(state) {
     while (true) {
       status = ProxyManager.status()
@@ -97,6 +113,8 @@ fun ProxyView(viewModel: MainViewModel, navigation: MainViewNavigation) {
               enabled = enabled,
               status = status,
               traffic = traffic,
+              authUser = authUser,
+              authPass = authPass,
               httpOn = httpOn,
               socksOn = socksOn,
               pacOn = pacOn,
@@ -106,7 +124,7 @@ fun ProxyView(viewModel: MainViewModel, navigation: MainViewNavigation) {
               onToggleMaster = {
                 enabled = it
                 App.get().setProxyEnabled(it)
-                ProxyManager.apply()
+                ProxyManager.applyAsync()
               },
               onToggleProtocol = { protocol, on ->
                 when (protocol) {
@@ -115,7 +133,7 @@ fun ProxyView(viewModel: MainViewModel, navigation: MainViewNavigation) {
                   ProtocolKind.PAC -> pacOn = on
                 }
                 App.get().setProxyProtocolEnabled(protocol.key, on)
-                ProxyManager.apply()
+                ProxyManager.applyAsync()
               },
               onEditPort = { editingProtocol = it },
               onShowEgress = { showingEgress = true },
@@ -149,7 +167,7 @@ fun ProxyView(viewModel: MainViewModel, navigation: MainViewNavigation) {
           }
           App.get().setProxyPorts(httpPort, socksPort, pacPort)
           editingProtocol = null
-          ProxyManager.apply()
+          ProxyManager.applyAsync()
         },
     )
   }
@@ -166,6 +184,8 @@ private fun ProxyContent(
     enabled: Boolean,
     status: ProxyStatus,
     traffic: ProxyTraffic,
+    authUser: String?,
+    authPass: String?,
     httpOn: Boolean,
     socksOn: Boolean,
     pacOn: Boolean,
@@ -259,7 +279,11 @@ private fun ProxyContent(
         InfoRow(
             label = stringResource(R.string.proxy_auth_label),
             value =
-                App.get().proxyUsername().ifEmpty { stringResource(R.string.proxy_auth_none) },
+                when {
+                  authUser == null -> "—"
+                  authUser.isEmpty() -> stringResource(R.string.proxy_auth_none)
+                  else -> authUser
+                },
         )
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -341,7 +365,7 @@ private fun ProxyContent(
       }
     }
 
-    AuthCard()
+    AuthCard(initialUsername = authUser ?: "", initialPassword = authPass ?: "")
   }
 }
 
@@ -377,10 +401,13 @@ private fun ExposureRow(addresses: String) {
 }
 
 @Composable
-private fun AuthCard() {
-  var username by remember { mutableStateOf(App.get().proxyUsername()) }
-  var password by remember { mutableStateOf(App.get().proxyPassword()) }
-  val changed = username != App.get().proxyUsername() || password != App.get().proxyPassword()
+private fun AuthCard(initialUsername: String, initialPassword: String) {
+  var username by remember(initialUsername) { mutableStateOf(initialUsername) }
+  var password by remember(initialPassword) { mutableStateOf(initialPassword) }
+  var savedUsername by remember(initialUsername) { mutableStateOf(initialUsername) }
+  var savedPassword by remember(initialPassword) { mutableStateOf(initialPassword) }
+  val changed = username != savedUsername || password != savedPassword
+  val scope = rememberCoroutineScope()
 
   Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
     Column(modifier = Modifier.padding(14.dp)) {
@@ -414,8 +441,15 @@ private fun AuthCard() {
       Spacer(modifier = Modifier.size(8.dp))
       Button(
           onClick = {
-            App.get().setProxyCredentials(username, password)
-            ProxyManager.restart()
+            savedUsername = username
+            savedPassword = password
+            val user = username
+            val pass = password
+            // Writing goes through the keystore too, so keep it off the UI thread.
+            scope.launch(Dispatchers.IO) {
+              App.get().setProxyCredentials(user, pass)
+              ProxyManager.restart()
+            }
           },
           enabled = changed,
       ) {
@@ -439,7 +473,7 @@ private fun EgressDialog(onDismiss: () -> Unit) {
           ) {
             egress = "tailscale"
             App.get().setProxyEgress("tailscale")
-            ProxyManager.restart()
+            ProxyManager.restartAsync()
             onDismiss()
           }
           EgressOption(
@@ -448,7 +482,7 @@ private fun EgressDialog(onDismiss: () -> Unit) {
           ) {
             egress = "direct"
             App.get().setProxyEgress("direct")
-            ProxyManager.restart()
+            ProxyManager.restartAsync()
             onDismiss()
           }
         }

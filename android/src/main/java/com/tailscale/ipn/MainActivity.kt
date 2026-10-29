@@ -21,7 +21,6 @@ import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContract
@@ -466,7 +465,6 @@ class MainActivity : ComponentActivity() {
                 )
               }
               composable("adblock") {
-                BackHandler { navController.popBackStack("main", false) }
                 AdBlockView(
                     viewModel = viewModel,
                     navigation = mainViewNav,
@@ -475,7 +473,6 @@ class MainActivity : ComponentActivity() {
                 )
               }
               composable("proxy") {
-                BackHandler { navController.popBackStack("main", false) }
                 ProxyView(viewModel = viewModel, navigation = mainViewNav)
               }
               composable("adblockApps") {
