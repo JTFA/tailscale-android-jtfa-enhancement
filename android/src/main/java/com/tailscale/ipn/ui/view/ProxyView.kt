@@ -52,6 +52,7 @@ import com.tailscale.ipn.ProxyManager
 import com.tailscale.ipn.ProxyStatus
 import com.tailscale.ipn.R
 import com.tailscale.ipn.ui.model.Ipn
+import com.tailscale.ipn.ui.notifier.Notifier
 import com.tailscale.ipn.ui.viewModel.MainViewModel
 import kotlinx.coroutines.delay
 import kotlin.math.max
@@ -185,6 +186,16 @@ private fun ProxyContent(
           }
           .joinToString(" · ")
   val running = enabled && anyProtocol && status.running
+  val expose = App.get().proxyExposeOnTailnet()
+  val tailnetIP = Notifier.netmap.value?.SelfNode?.primaryIPv4Address
+  val addresses =
+      if (!expose) "127.0.0.1"
+      else
+          (listOfNotNull(tailnetIP) + status.hosts)
+              .filter { it.isNotBlank() }
+              .distinct()
+              .joinToString(", ")
+              .ifEmpty { "0.0.0.0" }
 
   Column(
       modifier =
@@ -232,7 +243,7 @@ private fun ProxyContent(
         Spacer(modifier = Modifier.size(10.dp))
         InfoRow(
             label = stringResource(R.string.proxy_hosts_label),
-            value = if (App.get().proxyExposeOnTailnet()) "0.0.0.0" else "127.0.0.1",
+            value = addresses,
         )
         InfoRow(
             label = stringResource(R.string.proxy_port_label),
@@ -326,30 +337,17 @@ private fun ProxyContent(
             modifier = Modifier.clickable { onShowEgress() },
         )
         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-        ExposureRow(status = status)
+        ExposureRow(addresses = addresses)
       }
     }
 
     AuthCard()
-
-    WideActionButton(
-        text =
-            stringResource(
-                if (enabled) R.string.proxy_stop else R.string.proxy_start
-            ),
-        onClick = { onToggleMaster(!enabled) },
-    )
-    Spacer(modifier = Modifier.size(8.dp))
   }
 }
 
 @Composable
-private fun ExposureRow(status: ProxyStatus) {
+private fun ExposureRow(addresses: String) {
   var expose by remember { mutableStateOf(App.get().proxyExposeOnTailnet()) }
-  val addresses =
-      if (!expose) "127.0.0.1"
-      else if (status.hosts.isNotEmpty()) status.hosts.joinToString(", ")
-      else "0.0.0.0"
 
   Row(
       modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),

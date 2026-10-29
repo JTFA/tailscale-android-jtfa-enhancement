@@ -414,7 +414,7 @@
     <!-- Bottom navigation tabs -->
     <string name="tab_tailscale">Tailscale</string>
     <string name="tab_adblock">AdBlock</string>
-    <string name="tab_proxy">Every Proxy</string>
+    <string name="tab_proxy">Proxy Server</string>
 
     <!-- Shared metric labels -->
     <string name="metric_today">Today</string>
@@ -476,7 +476,7 @@
     <string name="adblock_rules_help">Supported: ||domain^, |domain|, plain domains, wildcards, hosts lines, /regex/, @@ exceptions, $important, $badfilter, $dnstype=, $denyallow=, $app= and $document.\n\nIgnored because filtering happens at DNS level: cosmetic rules (##, #@#), URL paths and content modifiers such as $script, $image, $third-party, $domain, $header, $cookie and $redirect.</string>
 
     <!-- Every Proxy tab -->
-    <string name="not_connected_proxy">Every Proxy only runs while the Tailscale tunnel is up. Connect to enable it.</string>
+    <string name="not_connected_proxy">The proxy only runs while the Tailscale tunnel is up. Connect to enable it.</string>
     <string name="proxy_status_off">Off</string>
     <string name="proxy_status_stopped">Stopped</string>
     <string name="proxy_status_running">Running</string>

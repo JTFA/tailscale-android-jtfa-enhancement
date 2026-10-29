@@ -82,10 +82,14 @@ func (p *proxyServer) start(cfg proxyConfig) error {
 	}
 
 	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
-		if cfg.Egress == "tailscale" {
-			if d := tsDialerForProxy.Load(); d != nil {
+		if d := tsDialerForProxy.Load(); d != nil {
+			if cfg.Egress == "tailscale" {
 				return d.UserDial(ctx, network, address)
 			}
+			// Direct means "use this device's own network". A plain net.Dialer
+			// here would not be VpnService.protect()ed, so the connection would
+			// be routed straight back into our TUN instead of leaving the phone.
+			return d.SystemDial(ctx, network, address)
 		}
 		var nd net.Dialer
 		return nd.DialContext(ctx, network, address)
