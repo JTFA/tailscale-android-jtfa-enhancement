@@ -385,7 +385,12 @@ func (p *proxyServer) pipe(client, upstream net.Conn) {
 		p.bytesDown.Add(n)
 		done <- struct{}{}
 	}()
+	// Tear both sides down as soon as one direction ends. Waiting for the upstream
+	// to close by itself kept dead tunnels in the client count until the remote
+	// server's keep-alive timeout, and made stop() wait on them as well.
 	<-done
+	_ = client.Close()
+	_ = upstream.Close()
 	<-done
 }
 

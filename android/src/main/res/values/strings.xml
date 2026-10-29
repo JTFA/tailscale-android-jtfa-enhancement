@@ -482,7 +482,7 @@
     <string name="proxy_status_running">Running</string>
     <string name="proxy_off_desc">Proxy is off</string>
     <string name="proxy_select_protocol">Turn on at least one protocol</string>
-    <string name="proxy_subtitle">%1$s · %2$d clients</string>
+    <string name="proxy_subtitle">%1$s · %2$d connections</string>
     <string name="proxy_http">HTTP / HTTPS</string>
     <string name="proxy_socks">SOCKS4 / SOCKS5</string>
     <string name="proxy_pac">PAC server</string>
