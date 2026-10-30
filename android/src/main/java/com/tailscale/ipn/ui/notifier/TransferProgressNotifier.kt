@@ -57,9 +57,6 @@ object TransferProgressNotifier {
   // A live update that vanishes the instant it hits 100% looks like a failed transfer, so the
   // finished state sits on screen for a moment before it is withdrawn.
   private const val HOLD_AFTER_COMPLETE_MS = 5_000L
-  // Long enough for the system's expand/app-open transition to play out before the card is
-  // withdrawn, short enough that the card is gone by the time the viewer is usable.
-  private const val OPEN_CLOSE_DELAY_MS = 900L
   // Request promotion into a live update. API 36.1 added Notification.Builder#requestPromotedOngoing,
   // but the request itself is just an extra, which compiles against API 36 and is honored on any
   // release that understands it.
@@ -106,6 +103,8 @@ object TransferProgressNotifier {
   private var writerName: String? = null
   private var writerTransfer: Transfer? = null
   private var lastCompletedReceive: Transfer? = null
+  // File the card currently on screen is about; a late completion or open must not touch another.
+  private var cardName: String? = null
   // Final URI per received file, filled in by the rename callback.
   private val receivedUris = mutableMapOf<String, String>()
   // Names whose receive card the writer stream already finished, so a later bus message about the
@@ -157,24 +156,19 @@ object TransferProgressNotifier {
     holdJob?.cancel()
     holdJob = null
     lastCompletedReceive = null
+    cardName = null
     cancel()
   }
 
   /**
-   * The user pressed Open. The card is withdrawn only after the system has finished animating the
-   * app it launched into place; cancelling immediately pulls the card out from under that
-   * transition.
+   * The viewer for a received file is on screen, so the card that offered it can go. Ignored when
+   * another transfer has taken the card over in the meantime.
    */
-  fun onOpenAction() {
-    val appScope = scope
-    if (appScope == null) {
-      onCloseAction()
+  fun onOpenAction(name: String?) {
+    if (name != null && cardName != null && name != cardName) {
       return
     }
-    appScope.launch {
-      delay(OPEN_CLOSE_DELAY_MS)
-      onCloseAction()
-    }
+    onCloseAction()
   }
 
   /**
@@ -469,32 +463,44 @@ object TransferProgressNotifier {
         }
     logPromotionState(context, notification, transfer.key)
     NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+    cardName = transfer.name
     if (keep) {
       holdJob?.cancel()
       holdJob = null
+    } else if (!complete) {
+      // A new transfer owns the card now, so a late rename callback for the previous file must not
+      // put that file back on screen over this one.
+      lastCompletedReceive = null
     }
     return keep
   }
 
   @androidx.annotation.RequiresApi(Build.VERSION_CODES.BAKLAVA)
   private fun buildLiveUpdate(context: Context, card: Card): Notification {
-    val style =
-        Notification.ProgressStyle()
-            // Let the declared size drive the bar; there are no separate segments or points.
-            .setStyledByProgress(false)
-            .setProgressIndeterminate(card.percent < 0)
-            .setProgress(card.percent.coerceAtLeast(0))
     val builder =
         Notification.Builder(context, App.FILE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(card.title)
             .setContentText(card.text)
-            .setStyle(style)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setCategory(Notification.CATEGORY_PROGRESS)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setShowWhen(false)
+    if (card.percent in 0..99) {
+      // Only real progress gets a bar: an indeterminate one reads as stalled work, and a full bar
+      // left over on a finished transfer reads as one that never ended.
+      builder.setStyle(
+          Notification.ProgressStyle()
+              // Let the declared size drive the bar; there are no separate segments or points.
+              .setStyledByProgress(false)
+              .setProgressIndeterminate(false)
+              .setProgress(card.percent)
+      )
+      builder.setCategory(Notification.CATEGORY_PROGRESS)
+    } else {
+      builder.setStyle(Notification.BigTextStyle().bigText(card.text))
+      builder.setCategory(Notification.CATEGORY_STATUS)
+    }
     card.tap?.let { builder.setContentIntent(it) }
     card.chipText?.let { builder.setShortCriticalText(it) }
     for (action in card.actions) {
@@ -517,13 +523,18 @@ object TransferProgressNotifier {
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(card.title)
             .setContentText(card.text)
-            .setProgress(100, card.percent.coerceAtLeast(0), card.percent < 0)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setShowWhen(false)
+    if (card.percent in 0..99) {
+      builder.setProgress(100, card.percent, false)
+      builder.setCategory(NotificationCompat.CATEGORY_PROGRESS)
+    } else {
+      builder.setStyle(NotificationCompat.BigTextStyle().bigText(card.text))
+      builder.setCategory(NotificationCompat.CATEGORY_STATUS)
+    }
     card.tap?.let { builder.setContentIntent(it) }
     for (action in card.actions) {
       builder.addAction(NotificationCompat.Action(0, context.getString(action.titleRes), action.intent))
