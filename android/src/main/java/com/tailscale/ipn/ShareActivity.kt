@@ -92,6 +92,13 @@ class ShareActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    // No window transition: the sheet slides itself in, and the system's own slide would carry the
+    // whole window (status bar included) sideways around it.
+    @Suppress("DEPRECATION") overridePendingTransition(0, 0)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
+      overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+    }
     // Translucent window: everything on screen is the sheet and its scrim.
     WindowCompat.setDecorFitsSystemWindows(window, false)
     @Suppress("DEPRECATION") window.statusBarColor = AndroidColor.TRANSPARENT
@@ -128,7 +135,9 @@ class ShareActivity : ComponentActivity() {
     super.onStart()
     // Ensure our app instance is initialized
     App.get()
-    RecentsVisibility.apply(this, App.get().isHideFromRecentsEnabled())
+    // The sheet lives in a task of its own: it is never a place to come back to from recents,
+    // whatever the app-wide preference says.
+    RecentsVisibility.apply(this, true)
     lifecycleScope.launch { withContext(Dispatchers.IO) { loadFiles() } }
   }
 

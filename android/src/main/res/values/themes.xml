@@ -4,6 +4,10 @@
       The share sheet is a translucent window rather than a full-screen page: the app that started
       the share stays visible behind it, and the sheet draws its own scrim over everything, status
       bar included. Nothing else about the activity changes.
+
+      Its task affinity is empty on purpose, so the sheet opens in a task of its own instead of
+      bringing Tailscale's main task to the front: otherwise the app's own UI would sit behind the
+      sheet rather than the app the user shared from.
     -->
     <style name="Theme.TSShareSheet" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
@@ -11,5 +15,15 @@
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowContentOverlay">@null</item>
+        <!-- The window must not animate: the card inside it does the moving. -->
+        <item name="android:windowAnimationStyle">@style/Animation.TSShareSheet</item>
+    </style>
+
+    <!-- An empty activity transition, so the sheet is not wrapped in the system's slide. -->
+    <style name="Animation.TSShareSheet" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/ts_share_hold</item>
+        <item name="android:activityOpenExitAnimation">@anim/ts_share_hold</item>
+        <item name="android:activityCloseEnterAnimation">@anim/ts_share_hold</item>
+        <item name="android:activityCloseExitAnimation">@anim/ts_share_hold</item>
     </style>
 </resources>
