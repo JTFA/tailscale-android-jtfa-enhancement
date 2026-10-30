@@ -36,6 +36,8 @@ fun PermissionsView(
   val permissions = Permissions.withGrantedStatus
   val liveTransferNotifications =
       permissionsViewModel.liveTransferNotifications.collectAsState().value
+  val keepReceivedNotification =
+      permissionsViewModel.keepReceivedNotification.collectAsState().value
 
   Scaffold(topBar = { Header(titleRes = R.string.permissions, onBack = backToSettings) }) {
       innerPadding ->
@@ -69,6 +71,17 @@ fun PermissionsView(
             subtitle = stringResource(R.string.live_transfer_notifications_subtitle),
             isOn = liveTransferNotifications,
             onToggle = { permissionsViewModel.toggleLiveTransferNotifications(it) },
+        )
+      }
+
+      item { Lists.ItemDivider() }
+      item {
+        Setting.Switch(
+            R.string.keep_received_notification,
+            subtitle = stringResource(R.string.keep_received_notification_subtitle),
+            isOn = keepReceivedNotification,
+            enabled = liveTransferNotifications,
+            onToggle = { permissionsViewModel.toggleKeepReceivedNotification(it) },
         )
       }
 

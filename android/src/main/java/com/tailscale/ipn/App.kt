@@ -725,6 +725,7 @@ open class UninitializedApp : Application() {
     private const val START_ON_BOOT_KEY = "startOnBoot"
     private const val HIDE_FROM_RECENTS_KEY = "hideFromRecents"
     private const val LIVE_TRANSFER_NOTIFICATIONS_KEY = "liveTransferNotifications"
+    private const val KEEP_RECEIVED_NOTIFICATION_KEY = "keepReceivedTransferNotification"
     private const val LAST_WANT_RUNNING_KEY = "lastWantRunning"
     private const val ADBLOCK_ENABLED_KEY = "adblockEnabled"
     private const val ADBLOCK_RULES_KEY = "adblockRules"
@@ -809,6 +810,18 @@ open class UninitializedApp : Application() {
 
   fun setLiveTransferNotificationEnabled(enabled: Boolean) {
     getUnencryptedPrefs().edit().putBoolean(LIVE_TRANSFER_NOTIFICATIONS_KEY, enabled).apply()
+  }
+
+  /**
+   * Whether a finished receive keeps its live card up, switched to "Received" with Open and Close
+   * actions, instead of being withdrawn a few seconds later.
+   */
+  fun isKeepReceivedTransferNotificationEnabled(): Boolean {
+    return getUnencryptedPrefs().getBoolean(KEEP_RECEIVED_NOTIFICATION_KEY, true)
+  }
+
+  fun setKeepReceivedTransferNotificationEnabled(enabled: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(KEEP_RECEIVED_NOTIFICATION_KEY, enabled).apply()
   }
 
   /**

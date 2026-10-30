@@ -10,12 +10,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.tailscale.ipn.App
-import com.tailscale.ipn.MainActivity
+import com.tailscale.ipn.LiveTransferActionReceiver
 import com.tailscale.ipn.R
 import com.tailscale.ipn.ui.model.Ipn
 import com.tailscale.ipn.util.InlineShare
@@ -37,7 +40,13 @@ import kotlinx.coroutines.launch
  *
  * Progress needs no new plumbing: outgoing files report Sent/DeclaredSize and incoming files
  * report Received/DeclaredSize through the IPN bus, refreshed at most once per second by the Go
- * taildrop code, so both directions animate while the bytes move.
+ * taildrop code, so both directions animate while the bytes move. A receive additionally gets a
+ * start-of-transfer card from the stream Go writes the file into, because a short transfer can
+ * finish before the bus reports anything at all.
+ *
+ * Tapping the card does nothing while the bytes move: the file does not exist yet, and a send has
+ * nothing local to open. A finished receive opens the received file. When the user asks to keep
+ * the finished card, it stays as a "Received" card with Open and Close actions.
  */
 object TransferProgressNotifier {
   private const val TAG = "TransferProgressNotifier"
@@ -46,6 +55,10 @@ object TransferProgressNotifier {
   // A live update that vanishes the instant it hits 100% looks like a failed transfer, so the
   // finished state sits on screen for a moment before it is withdrawn.
   private const val HOLD_AFTER_COMPLETE_MS = 5_000L
+  // Request promotion into a live update. API 36.1 added Notification.Builder#requestPromotedOngoing,
+  // but the request itself is just an extra, which compiles against API 36 and is honored on any
+  // release that understands it.
+  private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
 
   private enum class Direction {
     SEND,
@@ -62,10 +75,20 @@ object TransferProgressNotifier {
       val failed: Boolean = false,
   )
 
-  // Request promotion into a live update. API 36.1 added Notification.Builder#requestPromotedOngoing,
-  // but the request itself is just an extra, which compiles against API 36 and is honored on any
-  // release that understands it.
-  private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
+  /** An action button on the card. */
+  private class CardAction(val titleRes: Int, val intent: PendingIntent)
+
+  /** Everything that decides how one posting of the card looks. */
+  private class Card(
+      val title: String,
+      val text: String,
+      val percent: Int,
+      // Null means tapping the card does nothing, which is what the user asked for while a transfer
+      // is running and for every send.
+      val tap: PendingIntent?,
+      val actions: List<CardAction>,
+      val chipText: String?,
+  )
 
   private var appContext: Context? = null
   private var scope: CoroutineScope? = null
@@ -75,6 +98,7 @@ object TransferProgressNotifier {
   // Writer-driven receive state; see onReceiveStreamOpened.
   private var writerName: String? = null
   private var writerTransfer: Transfer? = null
+  private var lastCompletedReceive: Transfer? = null
   // Names whose receive card the writer stream already finished, so a later bus message about the
   // same transfer does not post the completion twice.
   private val completedReceiveNames = mutableSetOf<String>()
@@ -101,7 +125,7 @@ object TransferProgressNotifier {
   }
 
   /**
-   * Called when the user flips the setting. Turning the feature off withdraws whatever is on
+   * Called when the user flips a setting. Turning live notifications off withdraws whatever is on
    * screen right now instead of waiting for the next transfer to finish.
    */
   fun onPreferenceChanged() {
@@ -116,6 +140,14 @@ object TransferProgressNotifier {
   fun cancel() {
     val context = appContext ?: return
     NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
+  }
+
+  /** The user pressed Close on a kept "Received" card. */
+  fun onCloseAction() {
+    holdJob?.cancel()
+    holdJob = null
+    lastCompletedReceive = null
+    cancel()
   }
 
   /**
@@ -197,15 +229,42 @@ object TransferProgressNotifier {
     }
     val done =
         placeholder.copy(
-            transferred = if (placeholder.declaredSize > 0) placeholder.declaredSize
-                          else placeholder.transferred,
+            transferred =
+                if (placeholder.declaredSize > 0) placeholder.declaredSize
+                else placeholder.transferred,
             done = true,
         )
+    lastCompletedReceive = done
     if (!completedKeys.add(done.key)) {
       return
     }
     post(done, complete = true)
     scheduleHold(done.key)
+  }
+
+  /**
+   * Go renamed the received file into place, so its final URI is known. Returns true when the
+   * finished card took over the standard "file received" notification.
+   */
+  fun onReceiveCompleted(name: String, uri: Uri): Boolean {
+    if (InlineShare.matches(name)) {
+      return false
+    }
+    val context = appContext ?: return false
+    val completed = lastCompletedReceive?.takeIf { it.name == name } ?: return false
+    if (!canPost(context)) {
+      return false
+    }
+    if (!App.get().isKeepReceivedTransferNotificationEnabled()) {
+      // Not keeping it: give the card the open intent for the seconds it is still on screen.
+      post(completed, complete = true, openUri = uri)
+      return false
+    }
+    // Keep the card up as "Received" until the user closes it.
+    holdJob?.cancel()
+    holdJob = null
+    post(completed, complete = true, openUri = uri, keep = true)
+    return true
   }
 
   private fun Ipn.OutgoingFile.key(): String = "out:${ID.ifEmpty { Name }}"
@@ -253,30 +312,27 @@ object TransferProgressNotifier {
         }
   }
 
-  private fun post(transfer: Transfer, complete: Boolean) {
+  private fun post(
+      transfer: Transfer,
+      complete: Boolean,
+      openUri: Uri? = null,
+      keep: Boolean = false,
+  ) {
     val context = appContext ?: return
-    if (!App.get().isLiveTransferNotificationEnabled()) {
-      cancel()
-      return
-    }
-    if (
-        ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-    ) {
-      TSLog.d(TAG, "POST_NOTIFICATIONS not granted; skipping transfer notification")
+    if (!canPost(context)) {
       return
     }
 
     val percent = percentOf(transfer)
     val title =
-        context.getString(
-            when (transfer.direction) {
-              Direction.SEND -> R.string.transfer_sending
-              Direction.RECEIVE -> R.string.transfer_receiving
-            }
-        )
+        when {
+          keep -> context.getString(R.string.transfer_received)
+          transfer.direction == Direction.SEND -> context.getString(R.string.transfer_sending)
+          else -> context.getString(R.string.transfer_receiving)
+        }
     val text =
         when {
+          keep -> transfer.name
           transfer.failed -> context.getString(R.string.transfer_failed)
           complete -> context.getString(R.string.transfer_complete)
           percent >= 0 ->
@@ -288,71 +344,104 @@ object TransferProgressNotifier {
               )
           else -> context.getString(R.string.transfer_in_progress)
         }
+    val actions =
+        if (keep && openUri != null) {
+          listOf(
+              CardAction(R.string.transfer_open, openFileIntent(context, openUri)),
+              CardAction(R.string.transfer_close, closeIntent(context)),
+          )
+        } else {
+          emptyList()
+        }
+    val card =
+        Card(
+            title = title,
+            text = text,
+            percent = percent,
+            // Nothing opens while bytes move, and a send never has a local file to open.
+            tap = openUri?.let { openFileIntent(context, it) },
+            actions = actions,
+            chipText = if (percent >= 0) "$percent%" else null,
+        )
 
     val notification =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-          buildLiveUpdate(context, title, text, percent)
+          buildLiveUpdate(context, card)
         } else {
-          buildCompatProgress(context, title, text, percent)
+          buildCompatProgress(context, card)
         }
     logPromotionState(context, notification, transfer.key)
     NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
   }
 
   @androidx.annotation.RequiresApi(Build.VERSION_CODES.BAKLAVA)
-  private fun buildLiveUpdate(
-      context: Context,
-      title: String,
-      text: String,
-      percent: Int,
-  ): Notification {
+  private fun buildLiveUpdate(context: Context, card: Card): Notification {
     val style =
         Notification.ProgressStyle()
             // Let the declared size drive the bar; there are no separate segments or points.
             .setStyledByProgress(false)
-            .setProgressIndeterminate(percent < 0)
-            .setProgress(percent.coerceAtLeast(0))
+            .setProgressIndeterminate(card.percent < 0)
+            .setProgress(card.percent.coerceAtLeast(0))
     val builder =
         Notification.Builder(context, App.FILE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(text)
+            .setContentTitle(card.title)
+            .setContentText(card.text)
             .setStyle(style)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_PROGRESS)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setShowWhen(false)
-            .setContentIntent(contentIntent(context))
-    if (percent >= 0) {
-      builder.setShortCriticalText("$percent%")
+    card.tap?.let { builder.setContentIntent(it) }
+    card.chipText?.let { builder.setShortCriticalText(it) }
+    for (action in card.actions) {
+      builder.addAction(
+          Notification.Action.Builder(
+                  null as Icon?,
+                  context.getString(action.titleRes),
+                  action.intent,
+              )
+              .build()
+      )
     }
-    builder.addExtras(
-        android.os.Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) }
-    )
-    val notification = builder.build()
-    return notification
+    builder.addExtras(Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) })
+    return builder.build()
   }
 
-  private fun buildCompatProgress(
-      context: Context,
-      title: String,
-      text: String,
-      percent: Int,
-  ): Notification {
-    return NotificationCompat.Builder(context, App.FILE_CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle(title)
-        .setContentText(text)
-        .setProgress(100, percent.coerceAtLeast(0), percent < 0)
-        .setOngoing(true)
-        .setOnlyAlertOnce(true)
-        .setSilent(true)
-        .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-        .setShowWhen(false)
-        .setContentIntent(contentIntent(context))
-        .build()
+  private fun buildCompatProgress(context: Context, card: Card): Notification {
+    val builder =
+        NotificationCompat.Builder(context, App.FILE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(card.title)
+            .setContentText(card.text)
+            .setProgress(100, card.percent.coerceAtLeast(0), card.percent < 0)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setShowWhen(false)
+    card.tap?.let { builder.setContentIntent(it) }
+    for (action in card.actions) {
+      builder.addAction(NotificationCompat.Action(0, context.getString(action.titleRes), action.intent))
+    }
+    return builder.build()
+  }
+
+  private fun canPost(context: Context): Boolean {
+    if (!App.get().isLiveTransferNotificationEnabled()) {
+      cancel()
+      return false
+    }
+    if (
+        ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+    ) {
+      TSLog.d(TAG, "POST_NOTIFICATIONS not granted; skipping transfer notification")
+      return false
+    }
+    return true
   }
 
   private fun logPromotionState(context: Context, notification: Notification, key: String) {
@@ -369,14 +458,30 @@ object TransferProgressNotifier {
     }
   }
 
-  private fun contentIntent(context: Context): PendingIntent {
+  /** Opens the received file in whatever app handles its type. */
+  private fun openFileIntent(context: Context, uri: Uri): PendingIntent {
+    val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull() ?: "*/*"
     val intent =
-        Intent(context, MainActivity::class.java).apply {
-          flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        Intent(Intent.ACTION_VIEW).apply {
+          setDataAndType(uri, mime)
+          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     return PendingIntent.getActivity(
         context,
-        0,
+        NOTIFICATION_ID,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+  }
+
+  /** Removes a kept card, see [onCloseAction]. */
+  private fun closeIntent(context: Context): PendingIntent {
+    val intent =
+        Intent(context, LiveTransferActionReceiver::class.java)
+            .setAction(LiveTransferActionReceiver.ACTION_CLOSE)
+    return PendingIntent.getBroadcast(
+        context,
+        NOTIFICATION_ID,
         intent,
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )

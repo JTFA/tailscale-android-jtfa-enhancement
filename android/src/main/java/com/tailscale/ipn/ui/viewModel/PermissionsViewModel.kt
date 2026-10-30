@@ -20,6 +20,10 @@ class PermissionsViewModel : ViewModel() {
       MutableStateFlow(App.get().isLiveTransferNotificationEnabled())
   val liveTransferNotifications: StateFlow<Boolean> = _liveTransferNotifications
 
+  private val _keepReceivedNotification =
+      MutableStateFlow(App.get().isKeepReceivedTransferNotificationEnabled())
+  val keepReceivedNotification: StateFlow<Boolean> = _keepReceivedNotification
+
   fun refreshCurrentDir() {
     val newUri = TaildropDirectoryStore.loadSavedDir()?.toString()
     TSLog.d("PermissionsViewModel", "refreshCurrentDir: $newUri")
@@ -31,5 +35,11 @@ class PermissionsViewModel : ViewModel() {
     App.get().setLiveTransferNotificationEnabled(enabled)
     _liveTransferNotifications.value = enabled
     TransferProgressNotifier.onPreferenceChanged()
+  }
+
+  fun toggleKeepReceivedNotification(enabled: Boolean) {
+    TSLog.d("PermissionsViewModel", "toggleKeepReceivedNotification: $enabled")
+    App.get().setKeepReceivedTransferNotificationEnabled(enabled)
+    _keepReceivedNotification.value = enabled
   }
 }

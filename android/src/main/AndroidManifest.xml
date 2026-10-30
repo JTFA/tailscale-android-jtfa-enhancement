@@ -127,6 +127,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".LiveTransferActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".MDMSettingsChangedReceiver"
             android:exported="false">
             <intent-filter>
