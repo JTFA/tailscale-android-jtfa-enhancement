@@ -13,93 +13,62 @@ import android.util.Patterns
 import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.tailscale.ipn.ui.model.Ipn
 import com.tailscale.ipn.ui.theme.AppTheme
 import com.tailscale.ipn.ui.util.set
-import com.tailscale.ipn.ui.view.TaildropView
 import com.tailscale.ipn.util.InlineShare
 import com.tailscale.ipn.util.RecentsVisibility
 import com.tailscale.ipn.util.TSLog
-import kotlin.math.roundToInt
 import kotlin.random.Random
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// ShareActivity is the entry point for Taildrop share intents. It shows the device picker as a
-// floating sheet over the app that started the share, and steps out of the way as soon as a device
-// is picked: the transfer itself is reported by the live transfer notification.
+// ShareActivity is the entry point for Taildrop share intents. It is only the dimmed backdrop: the
+// card itself lives in a floating window of its own (ShareSheetDialog), which is what lets Android
+// blur behind the card alone. The sheet steps out of the way as soon as a device is picked: the
+// transfer itself is reported by the live transfer notification.
 class ShareActivity : ComponentActivity() {
   private val TAG = ShareActivity::class.simpleName
 
   private val requestedTransfers: StateFlow<List<Ipn.OutgoingFile>> = MutableStateFlow(emptyList())
+  private val scrimVisible = MutableStateFlow(true)
+  private var sheet: ShareSheetDialog? = null
+
+  private val glass: Boolean by lazy { App.get().isShareSheetGlassEnabled() }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    // No window transition: the sheet slides itself in, and the system's own slide would carry the
-    // whole window (status bar included) sideways around it.
+    // No window transition: the card slides its own window in, and the system's own slide would
+    // carry the whole window (status bar included) sideways around it.
     @Suppress("DEPRECATION") overridePendingTransition(0, 0)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
       overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
     }
-    // Translucent window: everything on screen is the sheet and its scrim.
+    // Translucent window: everything here is the scrim behind the card.
     WindowCompat.setDecorFitsSystemWindows(window, false)
     @Suppress("DEPRECATION") window.statusBarColor = AndroidColor.TRANSPARENT
     @Suppress("DEPRECATION") window.navigationBarColor = AndroidColor.TRANSPARENT
@@ -115,20 +84,11 @@ class ShareActivity : ComponentActivity() {
 
     setContent {
       AppTheme(setSystemBars = false) {
-        ShareSheet(
-            requestedTransfers = requestedTransfers,
-            applicationScope = (application as App).applicationScope,
-            onShareStarted = {
-              // With the sheet gone, a disabled live notification would leave the tap without any
-              // visible answer at all.
-              if (!App.get().isLiveTransferNotificationEnabled()) {
-                Toast.makeText(this, sendingMessage(), Toast.LENGTH_SHORT).show()
-              }
-            },
-            onDismiss = { finish() },
-        )
+        ShareSheetScrim(visible = scrimVisible, glass = glass, onTap = { closeSheet() })
       }
     }
+
+    showSheet()
   }
 
   override fun onStart() {
@@ -145,6 +105,46 @@ class ShareActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     loadFiles()
+  }
+
+  override fun onDestroy() {
+    sheet?.dismiss()
+    sheet = null
+    super.onDestroy()
+  }
+
+  private fun showSheet() {
+    val dialog =
+        ShareSheetDialog(
+            host = this,
+            requestedTransfers = requestedTransfers,
+            applicationScope = (application as App).applicationScope,
+            glass = glass,
+            onShareStarted = {
+              // With the sheet gone, a disabled live notification would leave the tap without any
+              // visible answer at all.
+              if (!App.get().isLiveTransferNotificationEnabled()) {
+                Toast.makeText(this, sendingMessage(), Toast.LENGTH_SHORT).show()
+              }
+              closeSheet()
+            },
+        ) {
+          finish()
+        }
+    sheet = dialog
+    dialog.show()
+  }
+
+  /** Dismisses the card and the scrim together; the activity goes away once the card has slid out. */
+  private fun closeSheet() {
+    scrimVisible.value = false
+    val dialog = sheet
+    sheet = null
+    if (dialog == null) {
+      finish()
+    } else {
+      dialog.requestClose()
+    }
   }
 
   /** What the sheet is about to send, for the toast that covers a disabled live notification. */
@@ -276,145 +276,37 @@ class ShareActivity : ComponentActivity() {
   }
 }
 
-private const val SHEET_ANIMATION_MS = 200
+private const val SCRIM_ANIMATION_MS = 200
 
 /**
- * The share sheet: a scrim over whatever the user was in, and a card that slides up from the bottom.
- * Tapping the scrim, the close button, dragging the card down or pressing back all dismiss it.
+ * Everything ShareActivity itself draws: a dim over the app the user shared from. Tapping it closes
+ * the sheet, exactly like the card's Cancel button. The card sits above it in its own window.
  */
 @Composable
-private fun ShareSheet(
-    requestedTransfers: StateFlow<List<Ipn.OutgoingFile>>,
-    applicationScope: CoroutineScope,
-    onShareStarted: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-  var shown by remember { mutableStateOf(false) }
-  var closing by remember { mutableStateOf(false) }
-  val scope = rememberCoroutineScope()
-
-  // One way out: the scrim and a device tap can both land, and the exit must be played once.
-  val close: () -> Unit = {
-    if (!closing) {
-      closing = true
-      shown = false
-      scope.launch {
-        delay(SHEET_ANIMATION_MS.toLong())
-        onDismiss()
-      }
-    }
-  }
-
-  LaunchedEffect(Unit) { shown = true }
-  BackHandler(onBack = close)
-
-  Box(modifier = Modifier.fillMaxSize()) {
-    AnimatedVisibility(
-        visible = shown,
-        enter = fadeIn(tween(SHEET_ANIMATION_MS)),
-        exit = fadeOut(tween(SHEET_ANIMATION_MS)),
-    ) {
-      Box(
-          modifier =
-              Modifier.fillMaxSize()
-                  .background(Color.Black.copy(alpha = 0.45f))
-                  .clickable(
-                      interactionSource = remember { MutableInteractionSource() },
-                      indication = null,
-                      onClick = close,
-                  )
+private fun ShareSheetScrim(visible: StateFlow<Boolean>, glass: Boolean, onTap: () -> Unit) {
+  val shown by visible.collectAsState()
+  // The frosted card carries its own contrast, so the backdrop can stay lighter and let more of the
+  // app behind it show through.
+  val target = if (glass) 0.32f else 0.45f
+  // The dim fades in with the card rather than flashing up at full strength for the first frame.
+  var entered by remember { mutableStateOf(false) }
+  LaunchedEffect(Unit) { entered = true }
+  val alpha by
+      animateFloatAsState(
+          targetValue = if (shown && entered) target else 0f,
+          animationSpec = tween(SCRIM_ANIMATION_MS),
+          label = "shareScrim",
       )
-    }
 
-    AnimatedVisibility(
-        visible = shown,
-        modifier = Modifier.align(Alignment.BottomCenter),
-        enter = slideInVertically(tween(SHEET_ANIMATION_MS)) { height -> height },
-        exit = slideOutVertically(tween(SHEET_ANIMATION_MS)) { height -> height },
-    ) {
-      ShareSheetCard(
-          requestedTransfers = requestedTransfers,
-          applicationScope = applicationScope,
-          onShareStarted = {
-            onShareStarted()
-            close()
-          },
-          onClose = close,
-      )
-    }
-  }
-}
-
-@Composable
-private fun ShareSheetCard(
-    requestedTransfers: StateFlow<List<Ipn.OutgoingFile>>,
-    applicationScope: CoroutineScope,
-    onShareStarted: () -> Unit,
-    onClose: () -> Unit,
-) {
-  val maxHeight = (LocalConfiguration.current.screenHeightDp * 0.78f).dp
-  val dragOffset = remember { Animatable(0f) }
-  val scope = rememberCoroutineScope()
-  val density = LocalDensity.current
-
-  Surface(
+  Box(
       modifier =
-          Modifier.fillMaxWidth()
-              .offset { IntOffset(0, dragOffset.value.roundToInt()) }
-              .draggable(
-                  orientation = Orientation.Vertical,
-                  state =
-                      rememberDraggableState { delta ->
-                        scope.launch { dragOffset.snapTo((dragOffset.value + delta).coerceAtLeast(0f)) }
-                      },
-                  onDragStopped = { velocity ->
-                    val fling = with(density) { 96.dp.toPx() }
-                    if (dragOffset.value > fling || velocity > 1_200f) {
-                      onClose()
-                    } else {
-                      dragOffset.animateTo(0f, tween(SHEET_ANIMATION_MS))
-                    }
-                  },
-              ),
-      shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-      color = MaterialTheme.colorScheme.surface,
-  ) {
-    Column(modifier = Modifier.heightIn(max = maxHeight).navigationBarsPadding()) {
-      // The grab handle says the card can be pulled down, which is what it does.
-      Box(modifier = Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
-        Box(
-            modifier =
-                Modifier.width(36.dp)
-                    .height(4.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        shape = RoundedCornerShape(2.dp),
-                    )
-        )
-      }
-
-      Row(
-          modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 4.dp),
-          verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Text(
-            text = stringResource(R.string.share),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onClose) {
-          Icon(
-              imageVector = Icons.Filled.Close,
-              contentDescription = stringResource(R.string.cancel),
-          )
-        }
-      }
-
-      TaildropView(
-          requestedTransfers = requestedTransfers,
-          applicationScope = applicationScope,
-          onShareStarted = onShareStarted,
-      )
-    }
-  }
+          Modifier.fillMaxSize()
+              .background(Color.Black.copy(alpha = alpha))
+              .clickable(
+                  interactionSource = remember { MutableInteractionSource() },
+                  indication = null,
+              ) {
+                if (shown) onTap()
+              }
+  )
 }

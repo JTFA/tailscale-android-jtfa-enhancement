@@ -158,6 +158,13 @@ fun SettingsView(
           onToggle = { viewModel.toggleHideFromRecents() },
       )
 
+      Lists.SectionDivider()
+      Setting.Text(
+          R.string.settings_theme,
+          subtitle = stringResource(R.string.settings_theme_subtitle),
+          onClick = settingsNav.onNavigateToTheme,
+      )
+
       if (!AndroidTVUtil.isAndroidTV()) {
         Lists.ItemDivider()
         Setting.Text(R.string.permissions, onClick = settingsNav.onNavigateToPermissions)
@@ -316,5 +323,5 @@ fun SettingsPreview() {
   vm.tailNetLockEnabled.set(true)
   vm.isAdmin.set(true)
   vm.managedByOrganization.set("Tails and Scales Inc.")
-  SettingsView(SettingsNav({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}), vm)
+  SettingsView(SettingsNav({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}), vm)
 }

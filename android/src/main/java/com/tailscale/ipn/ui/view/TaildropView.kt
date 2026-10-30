@@ -49,9 +49,6 @@ import kotlinx.coroutines.flow.StateFlow
 fun TaildropView(
     requestedTransfers: StateFlow<List<Ipn.OutgoingFile>>,
     applicationScope: CoroutineScope,
-    // Called once a device accepted the share, so the sheet can step out of the way; the transfer
-    // itself is reported by the live transfer notification from here on.
-    onShareStarted: () -> Unit = {},
     viewModel: TaildropViewModel =
         viewModel(factory = TaildropViewModelFactory(requestedTransfers, applicationScope)),
 ) {
@@ -86,7 +83,7 @@ fun TaildropView(
             recent = recent,
             other = other,
             stateViewGenerator = { peerId -> viewModel.TrailingContentForPeer(peerId = peerId) },
-            onShare = { peer -> if (viewModel.share(context, peer)) onShareStarted() },
+            onShare = { peer -> viewModel.share(context, peer) },
         )
       }
       else -> {

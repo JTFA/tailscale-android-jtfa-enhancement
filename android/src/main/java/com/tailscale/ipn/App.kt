@@ -742,6 +742,7 @@ open class UninitializedApp : Application() {
     private const val PROXY_EGRESS_KEY = "proxyEgress"
     internal const val PROXY_USERNAME_KEY = "proxyUsername"
     internal const val PROXY_PASSWORD_KEY = "proxyPassword"
+    private const val SHARE_SHEET_GLASS_KEY = "shareSheetGlass"
     // File for shared preferences that are not encrypted.
     private const val UNENCRYPTED_PREFERENCES = "unencrypted"
     private lateinit var appInstance: UninitializedApp
@@ -822,6 +823,19 @@ open class UninitializedApp : Application() {
 
   fun setKeepReceivedTransferNotificationEnabled(enabled: Boolean) {
     getUnencryptedPrefs().edit().putBoolean(KEEP_RECEIVED_NOTIFICATION_KEY, enabled).apply()
+  }
+
+  /**
+   * Look of the share sheet. True is the ColorOS17 style: a frosted, translucent card with a bright
+   * edge; false is the plain opaque sheet. Off by default, because the frosted look depends on the
+   * device actually offering window blur.
+   */
+  fun isShareSheetGlassEnabled(): Boolean {
+    return getUnencryptedPrefs().getBoolean(SHARE_SHEET_GLASS_KEY, false)
+  }
+
+  fun setShareSheetGlassEnabled(enabled: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(SHARE_SHEET_GLASS_KEY, enabled).apply()
   }
 
   /**

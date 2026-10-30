@@ -527,4 +527,12 @@
     <string name="proxy_auth_password">Password</string>
     <string name="proxy_start">Start proxy</string>
     <string name="proxy_stop">Stop proxy</string>
+
+    <!-- Theme -->
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_subtitle">Look of the share sheet</string>
+    <string name="theme_default">Default</string>
+    <string name="theme_default_subtitle">Solid background, no blur</string>
+    <string name="theme_coloros17">ColorOS17</string>
+    <string name="theme_coloros17_subtitle">Frosted glass: blur, translucency and a bright edge</string>
 </resources>

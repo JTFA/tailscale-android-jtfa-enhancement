@@ -26,4 +26,28 @@
         <item name="android:activityCloseEnterAnimation">@anim/ts_share_hold</item>
         <item name="android:activityCloseExitAnimation">@anim/ts_share_hold</item>
     </style>
+
+    <!--
+      The card of the share sheet is a window of its own, floating over the activity: Android can
+      only blur behind a floating, translucent window, so keeping the card in its own window is what
+      frosts the card instead of the whole screen. The window background is a rounded drawable set
+      in code (its corners shape the blur region too); the Compose content draws the glass on top.
+    -->
+    <style name="Theme.TSShareCard" parent="Theme.MaterialComponents.DayNight.Dialog">
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowMinWidthMajor">100%</item>
+        <item name="android:windowMinWidthMinor">100%</item>
+        <!-- The dialog window must not animate: the card moves its window itself. -->
+        <item name="android:windowAnimationStyle">@style/Animation.TSShareCard</item>
+    </style>
+
+    <style name="Animation.TSShareCard" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/ts_share_hold</item>
+        <item name="android:windowExitAnimation">@anim/ts_share_hold</item>
+    </style>
 </resources>

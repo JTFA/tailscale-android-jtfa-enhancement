@@ -104,6 +104,7 @@ import com.tailscale.ipn.ui.view.SubnetRoutingView
 import com.tailscale.ipn.ui.view.TaildropDirView
 import com.tailscale.ipn.ui.view.TaildropDirectoryPickerPrompt
 import com.tailscale.ipn.ui.view.TailnetLockSetupView
+import com.tailscale.ipn.ui.view.ThemeSettingsView
 import com.tailscale.ipn.ui.view.UserSwitcherNav
 import com.tailscale.ipn.ui.view.UserSwitcherView
 import com.tailscale.ipn.ui.view.bottomTabs
@@ -432,6 +433,7 @@ class MainActivity : ComponentActivity() {
                       onNavigateToManagedBy = { navController.navigate("managedBy") },
                       onNavigateToUserSwitcher = { navController.navigate("userSwitcher") },
                       onNavigateToPermissions = { navController.navigate("permissions") },
+                      onNavigateToTheme = { navController.navigate("themeSettings") },
                       onBackToSettings = backTo("settings"),
                       onNavigateBackHome = backTo("main"),
                   )
@@ -533,6 +535,7 @@ class MainActivity : ComponentActivity() {
                     { navController.navigate("notifications") },
                 )
               }
+              composable("themeSettings") { ThemeSettingsView(backTo("settings")) }
               composable("taildropDir") {
                 TaildropDirView(
                     backTo("permissions"),
