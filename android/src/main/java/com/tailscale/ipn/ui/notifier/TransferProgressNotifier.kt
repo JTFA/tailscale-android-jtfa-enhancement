@@ -74,7 +74,10 @@ object TransferProgressNotifier {
   private var loggedKey: String? = null
   // Writer-driven receive state; see onReceiveStreamOpened.
   private var writerName: String? = null
-  private var writerSawBus = false
+  private var writerTransfer: Transfer? = null
+  // Names whose receive card the writer stream already finished, so a later bus message about the
+  // same transfer does not post the completion twice.
+  private val completedReceiveNames = mutableSetOf<String>()
   private val activeKeys = mutableSetOf<String>()
   private val completedKeys = mutableSetOf<String>()
 
@@ -133,18 +136,16 @@ object TransferProgressNotifier {
   /** The most recent download, using the same active-then-finished rule as [pickOutgoing]. */
   private fun pickIncoming(files: List<Ipn.PartialFile>): Transfer? {
     val candidates = files.filterNot { InlineShare.matches(it.Name) }
-    if (candidates.any { it.Name == writerName }) {
-      writerSawBus = true
-    }
-    val active = candidates.lastOrNull { it.Done != true }
+    val active = candidates.lastOrNull { it.Done != true && it.Name !in completedReceiveNames }
     if (active != null) {
       return active.toTransfer(Direction.RECEIVE, done = false)
     }
     // A finished entry is not required to have been seen active first: a fast transfer (or a slow
     // bus) can deliver only the final notification, and skipping it used to leave the user with no
     // receiving notification at all. Go drops the entry right after this notify, so anything with
-    // Done=true here is a transfer that just ended.
-    val finished = candidates.lastOrNull { it.Done == true }
+    // Done=true here is a transfer that just ended. Names that the writer stream already completed
+    // are skipped: that card is on screen and must not be posted a second time.
+    val finished = candidates.lastOrNull { it.Done == true && it.Name !in completedReceiveNames }
     return finished?.toTransfer(Direction.RECEIVE, done = true)
   }
 
@@ -152,7 +153,8 @@ object TransferProgressNotifier {
    * Called by ShareFileHelper when Go starts writing a received file. The bus notification that
    * carries IncomingFiles can be missed entirely (a short transfer can start and finish before the
    * watcher or the flow catches up), but this callback is the stream Go writes into, so it always
-   * fires. Post a placeholder now; the bus refines it with the declared size and the completion.
+   * fires. Post the card now; the bus refines it with the declared size and progress, and
+   * [onReceiveStreamClosed] turns it into the completion.
    */
   fun onReceiveStreamOpened(name: String) {
     if (InlineShare.matches(name)) {
@@ -160,10 +162,8 @@ object TransferProgressNotifier {
     }
     val busFile = Notifier.incomingFiles.value?.firstOrNull { it.Name == name }
     writerName = name
-    writerSawBus = busFile != null
-    holdJob?.cancel()
-    holdJob = null
-    post(
+    completedReceiveNames -= name
+    val transfer =
         Transfer(
             "in-stream:$name",
             name,
@@ -171,22 +171,41 @@ object TransferProgressNotifier {
             busFile?.Received ?: 0L,
             busFile?.DeclaredSize ?: -1L,
             done = false,
-        ),
-        complete = false,
-    )
+        )
+    writerTransfer = transfer
+    completedKeys -= transfer.key
+    holdJob?.cancel()
+    holdJob = null
+    post(transfer, complete = false)
   }
 
-  /** The receive stream closed: withdraw the placeholder if the bus never reported this file. */
+  /**
+   * The receive stream closed, which happens right before Go reports the completion. Show the end
+   * state on the same card instead of withdrawing it and letting the bus post a second one: a fast
+   * transfer otherwise flashes through a cancel and re-post.
+   */
   fun onReceiveStreamClosed(name: String) {
     if (writerName != name) {
       return
     }
     writerName = null
-    if (writerSawBus) {
-      // The bus owns the rest of this transfer: it still has to report the completion.
+    val placeholder = writerTransfer ?: return
+    writerTransfer = null
+    completedReceiveNames += name
+    if (completedReceiveNames.size > 64) {
+      completedReceiveNames.clear()
+    }
+    val done =
+        placeholder.copy(
+            transferred = if (placeholder.declaredSize > 0) placeholder.declaredSize
+                          else placeholder.transferred,
+            done = true,
+        )
+    if (!completedKeys.add(done.key)) {
       return
     }
-    cancel()
+    post(done, complete = true)
+    scheduleHold(done.key)
   }
 
   private fun Ipn.OutgoingFile.key(): String = "out:${ID.ifEmpty { Name }}"
@@ -216,12 +235,16 @@ object TransferProgressNotifier {
       return
     }
     post(transfer, complete = true)
+    scheduleHold(transfer.key)
+  }
+
+  private fun scheduleHold(key: String) {
     holdJob?.cancel()
     holdJob =
         scope?.launch {
           delay(HOLD_AFTER_COMPLETE_MS)
           cancel()
-          activeKeys -= transfer.key
+          activeKeys -= key
           // The key stays in completedKeys: a repeat of the same finished entry (the bus can emit it
           // again) must not resurrect the card. Keys are per transfer, so this only grows slowly.
           if (completedKeys.size > 64) {
