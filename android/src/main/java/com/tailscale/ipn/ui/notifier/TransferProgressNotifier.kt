@@ -5,6 +5,7 @@ package com.tailscale.ipn.ui.notifier
 
 import android.Manifest
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -61,10 +62,16 @@ object TransferProgressNotifier {
       val failed: Boolean = false,
   )
 
+  // Request promotion into a live update. API 36.1 added Notification.Builder#requestPromotedOngoing,
+  // but the request itself is just an extra, which compiles against API 36 and is honored on any
+  // release that understands it.
+  private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
+
   private var appContext: Context? = null
   private var scope: CoroutineScope? = null
   private var collectJob: Job? = null
   private var holdJob: Job? = null
+  private var loggedKey: String? = null
   private val activeKeys = mutableSetOf<String>()
   private val completedKeys = mutableSetOf<String>()
 
@@ -211,6 +218,7 @@ object TransferProgressNotifier {
         } else {
           buildCompatProgress(context, title, text, percent)
         }
+    logPromotionState(context, notification, transfer.key)
     NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
   }
 
@@ -242,16 +250,11 @@ object TransferProgressNotifier {
     if (percent >= 0) {
       builder.setShortCriticalText("$percent%")
     }
-    // Promoted ongoing notifications are what the system (and ColorOS' Fluid Cloud) picks up as a
-    // live update. The setter only exists on API 36.1+, so it is invoked reflectively rather than
-    // compiled in: on plain API 36 the notification still posts as an ongoing progress card.
-    runCatching {
-      Notification.Builder::class
-          .java
-          .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
-          .invoke(builder, true)
-    }
-    return builder.build()
+    builder.addExtras(
+        android.os.Bundle().apply { putBoolean(EXTRA_REQUEST_PROMOTED_ONGOING, true) }
+    )
+    val notification = builder.build()
+    return notification
   }
 
   private fun buildCompatProgress(
@@ -273,6 +276,20 @@ object TransferProgressNotifier {
         .setShowWhen(false)
         .setContentIntent(contentIntent(context))
         .build()
+  }
+
+  private fun logPromotionState(context: Context, notification: Notification, key: String) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA || loggedKey == key) {
+      return
+    }
+    loggedKey = key
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
+      val manager = context.getSystemService(NotificationManager::class.java)
+      TSLog.d(
+          TAG,
+          "live update: promotable=${notification.hasPromotableCharacteristics()} " +
+              "allowed=${manager?.canPostPromotedNotifications()}")
+    }
   }
 
   private fun contentIntent(context: Context): PendingIntent {
