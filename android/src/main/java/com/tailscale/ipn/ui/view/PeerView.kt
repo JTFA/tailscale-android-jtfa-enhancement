@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +23,7 @@ import com.tailscale.ipn.ui.model.Ipn
 import com.tailscale.ipn.ui.model.Tailcfg
 import com.tailscale.ipn.ui.theme.off
 import com.tailscale.ipn.ui.theme.on
+import com.tailscale.ipn.ui.util.LocalListItemContainerColor
 
 @Composable
 fun PeerView(
@@ -37,6 +39,11 @@ fun PeerView(
 
   ListItem(
       modifier = Modifier.clickable { onClick(peer) },
+      colors =
+          ListItemDefaults.colors(
+              containerColor =
+                  LocalListItemContainerColor.current ?: ListItemDefaults.containerColor
+          ),
       headlineContent = {
         Row(verticalAlignment = Alignment.CenterVertically) {
           // By definition, SelfPeer is online since we will not show the peer list

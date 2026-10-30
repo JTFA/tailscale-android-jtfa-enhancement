@@ -63,15 +63,18 @@ class ShareActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     // No window transition: the card slides its own window in, and the system's own slide would
     // carry the whole window (status bar included) sideways around it.
-    @Suppress("DEPRECATION") overridePendingTransition(0, 0)
+    @Suppress("DEPRECATION")
+    overridePendingTransition(0, 0)
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0)
       overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
     }
     // Translucent window: everything here is the scrim behind the card.
     WindowCompat.setDecorFitsSystemWindows(window, false)
-    @Suppress("DEPRECATION") window.statusBarColor = AndroidColor.TRANSPARENT
-    @Suppress("DEPRECATION") window.navigationBarColor = AndroidColor.TRANSPARENT
+    @Suppress("DEPRECATION")
+    window.statusBarColor = AndroidColor.TRANSPARENT
+    @Suppress("DEPRECATION")
+    window.navigationBarColor = AndroidColor.TRANSPARENT
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       window.isNavigationBarContrastEnforced = false
     }

@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tailscale.ipn.R
 import com.tailscale.ipn.ui.model.Ipn
+import com.tailscale.ipn.ui.util.LocalListItemContainerColor
 import com.tailscale.ipn.ui.util.LocalSectionHeaderBackground
 import com.tailscale.ipn.ui.viewModel.TaildropViewModel
 import com.tailscale.ipn.ui.viewModel.TaildropViewModelFactory
@@ -67,10 +68,11 @@ fun ShareSheetCard(
   val context = LocalContext.current
   val files by requestedTransfers.collectAsState()
 
-  // Section headers ("Recently used", "My devices") paint the app surface by default, which would
-  // show up as opaque bars on the frosted card.
+  // Section headers ("Recently used", "My devices") and list rows paint the app surface by default,
+  // which would show up as opaque bars on the frosted card.
   CompositionLocalProvider(
-      LocalSectionHeaderBackground provides if (glass) Color.Transparent else null
+      LocalSectionHeaderBackground provides if (glass) Color.Transparent else null,
+      LocalListItemContainerColor provides if (glass) Color.Transparent else null,
   ) {
     Box(
         modifier =

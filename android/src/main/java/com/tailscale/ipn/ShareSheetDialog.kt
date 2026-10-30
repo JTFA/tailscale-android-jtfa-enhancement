@@ -20,6 +20,7 @@ import android.view.animation.DecelerateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
@@ -86,7 +87,14 @@ class ShareSheetDialog(
       // The card draws all the way to the bottom edge; its content pads itself out of the way of
       // the navigation bar.
       WindowCompat.setDecorFitsSystemWindows(window, false)
+      // Without this the window manager keeps every window inside the display, which would clamp
+      // the slide-away offsets to zero and leave the card with no animation at all.
+      window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
       window.setLayout(MATCH_PARENT, WRAP_CONTENT)
+      // Start the very first frame already below the screen; onStart then slides it up.
+      window.attributes =
+          window.attributes.apply { y = -host.resources.displayMetrics.heightPixels }
+      applySystemBars(window)
       applyWindowBackground(window)
     }
 
@@ -100,16 +108,32 @@ class ShareSheetDialog(
     // with the default floating size.
     window?.setLayout(MATCH_PARENT, WRAP_CONTENT)
     registerBlurListener()
+    slideInWhenLaidOut(attempt = 0)
+  }
 
-    val window = window ?: return
-    window.decorView.post {
-      val height = window.decorView.height
-      if (height > 0 && !closing) {
-        // With gravity BOTTOM, a positive y moves the window up; a negative one moves it below the
-        // bottom edge, which is where the card comes from.
-        slide(from = -height, to = 0, duration = SLIDE_IN_MS)
-      }
+  /**
+   * The card starts below the screen, so the slide may only begin once the window knows how tall it
+   * is: the height is what the offset is measured in. The first frames after show() can still have
+   * no height, hence the retries; if the height never arrives the card is simply put back in place
+   * rather than being left off screen.
+   */
+  private fun slideInWhenLaidOut(attempt: Int) {
+    val decor = window?.decorView ?: return
+    if (closing) return
+    val height = decor.height
+    if (height > 0) {
+      // With gravity BOTTOM, a positive y moves the window up; a negative one moves it below the
+      // bottom edge, which is where the card comes from.
+      slide(from = -height, to = 0, duration = SLIDE_IN_MS)
+      return
     }
+    if (attempt >= MAX_SLIDE_IN_ATTEMPTS) {
+      window?.let { window ->
+        window.attributes = window.attributes.apply { y = 0 }
+      }
+      return
+    }
+    decor.postDelayed({ slideInWhenLaidOut(attempt + 1) }, SLIDE_IN_RETRY_MS)
   }
 
   override fun onStop() {
@@ -133,6 +157,26 @@ class ShareSheetDialog(
     }
   }
 
+  // The card reaches into the navigation bar area, so the bar itself has to be see-through and the
+  // gesture pill has to contrast with the card, not with the dialog theme.
+  private fun applySystemBars(window: Window) {
+    val night = isNightMode()
+    @Suppress("DEPRECATION")
+    window.navigationBarColor = android.graphics.Color.TRANSPARENT
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+    }
+    WindowInsetsControllerCompat(window, window.decorView).apply {
+      isAppearanceLightNavigationBars = !night
+      // The scrim behind the card is dark whatever the app theme is.
+      isAppearanceLightStatusBars = false
+    }
+  }
+
+  private fun isNightMode(): Boolean =
+      (host.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+          Configuration.UI_MODE_NIGHT_YES
+
   // The window background carries the blur region and its rounded corners, so both looks share the
   // same shape. Only the fill differs.
   private fun applyWindowBackground(window: Window) {
@@ -154,9 +198,7 @@ class ShareSheetDialog(
   }
 
   private fun backgroundTint(): Int {
-    val night =
-        (host.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
+    val night = isNightMode()
     return when {
       // No glass: the plain sheet, the app's own surface colour.
       !glass -> if (night) DARK_SURFACE else LIGHT_SURFACE
@@ -232,6 +274,8 @@ class ShareSheetDialog(
   private companion object {
     const val SLIDE_IN_MS = 220L
     const val SLIDE_OUT_MS = 180L
+    const val SLIDE_IN_RETRY_MS = 16L
+    const val MAX_SLIDE_IN_ATTEMPTS = 40
     // Android's own guidance for a frosted panel: strong enough to read as frost, not a smear.
     const val BLUR_RADIUS_PX = 48
 

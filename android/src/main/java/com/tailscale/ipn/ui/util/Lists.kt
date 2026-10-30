@@ -37,6 +37,12 @@ import androidx.compose.ui.unit.dp
  */
 val LocalSectionHeaderBackground = compositionLocalOf<Color?> { null }
 
+/**
+ * Container colour for list rows. Null keeps the Material default; the share sheet's frosted card
+ * sets it to Color.Transparent so the device rows do not paint solid blocks over the frost.
+ */
+val LocalListItemContainerColor = compositionLocalOf<Color?> { null }
+
 object Lists {
   @Composable
   fun SectionDivider(title: String? = null) {
