@@ -170,6 +170,7 @@ object ShareFileHelper : libtailscale.ShareFileHelper {
         runCatching { ctx.contentResolver.delete(srcUri, null, null) }
         cleanupPartials(dir, targetName)
         maybeNotifyInlineShare(ctx, newUri.toString(), targetName)
+        maybeNotifyReceivedFile(ctx, newUri.toString(), targetName)
         return newUri.toString()
       }
     } catch (e: Exception) {
@@ -196,6 +197,7 @@ object ShareFileHelper : libtailscale.ShareFileHelper {
     ctx.contentResolver.delete(srcUri, null, null)
     cleanupPartials(dir, targetName)
     maybeNotifyInlineShare(ctx, dest.uri.toString(), targetName)
+    maybeNotifyReceivedFile(ctx, dest.uri.toString(), targetName)
     return dest.uri.toString()
   }
 
@@ -222,6 +224,17 @@ object ShareFileHelper : libtailscale.ShareFileHelper {
     val pending = PendingInlineShare(kind = share.kind, content = share.content, uri = uri)
     Notifier.appendInlineShare(pending)
     TaildropNotifier.notify(ctx, pending)
+  }
+
+  // Taildrop files finish here (send.go renames the .partial into place), so this is the one
+  // place that sees every completed transfer. Plain files get a system notification; without it
+  // a received photo or document was announced only by the in-app banner, which is invisible
+  // while the app is in the background. Inline shares are skipped: maybeNotifyInlineShare has
+  // already posted a tap-to-copy notification for them.
+  private fun maybeNotifyReceivedFile(ctx: Context, uri: String, targetName: String) {
+    if (InlineShare.matches(targetName)) return
+    val parsed = runCatching { Uri.parse(uri) }.getOrNull() ?: return
+    TaildropNotifier.notifyFile(ctx, parsed, targetName)
   }
 
   private fun lengthOfUri(ctx: Context, uri: Uri): Long =

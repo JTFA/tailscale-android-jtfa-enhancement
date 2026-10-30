@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -96,5 +97,51 @@ object TaildropNotifier {
             .build()
 
     NotificationManagerCompat.from(context).notify(pending.id.hashCode(), notification)
+  }
+
+  // Plain files used to arrive silently: only inline shares (text and links) got a notification,
+  // so a received photo or document was announced solely by the in-app banner, which nobody sees
+  // while the app is in the background. This posts the missing "file received" notification; the
+  // caller skips inline shares because notify() above already covers them.
+  fun notifyFile(context: Context, uri: Uri, name: String) {
+    if (
+        ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+    ) {
+      TSLog.d(TAG, "POST_NOTIFICATIONS not granted; skipping file notification")
+      return
+    }
+
+    // Open with whatever app handles the type. A SAF document URI needs the read grant on the
+    // intent so the viewer can actually read it, and NEW_TASK because the app may be in the
+    // background when the user taps.
+    val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull() ?: "*/*"
+    val openIntent =
+        Intent(Intent.ACTION_VIEW).apply {
+          setDataAndType(uri, mime)
+          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    val id = "file-${name}".hashCode()
+    val openPendingIntent =
+        PendingIntent.getActivity(
+            context,
+            id,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    val notification =
+        NotificationCompat.Builder(context, App.FILE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(context.getString(R.string.taildrop_file_received))
+            .setContentText(name)
+            .setSubText(context.getString(R.string.taildrop_saved_in_directory))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(name))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(openPendingIntent)
+            .build()
+
+    NotificationManagerCompat.from(context).notify(id, notification)
   }
 }
