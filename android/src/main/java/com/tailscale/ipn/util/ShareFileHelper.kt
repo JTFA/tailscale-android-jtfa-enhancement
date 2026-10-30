@@ -9,6 +9,7 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.tailscale.ipn.ui.notifier.Notifier
 import com.tailscale.ipn.ui.notifier.TaildropNotifier
+import com.tailscale.ipn.ui.notifier.TransferProgressNotifier
 import com.tailscale.ipn.ui.util.InputStreamAdapter
 import com.tailscale.ipn.ui.util.OutputStreamAdapter
 import java.io.File
@@ -127,7 +128,36 @@ object ShareFileHelper : libtailscale.ShareFileHelper {
     runBlocking { waitUntilTaildropDirReady() }
     val (uri, stream) = openWriterFD(fileName, offset)
     currentUri[fileName] = uri
-    return OutputStreamAdapter(stream)
+    // Go writes the incoming bytes through this stream, so it is the one reliable start-of-receive
+    // signal: the IPN bus notification can be missed for short transfers.
+    TransferProgressNotifier.onReceiveStreamOpened(fileName)
+    return OutputStreamAdapter(ReceiveReportingStream(fileName, stream))
+  }
+
+  /** Closes the underlying stream, then lets the live notification know the receive ended. */
+  private class ReceiveReportingStream(
+      private val name: String,
+      private val delegate: OutputStream,
+  ) : OutputStream() {
+    private var closed = false
+
+    override fun write(b: Int) = delegate.write(b)
+
+    override fun write(b: ByteArray) = delegate.write(b)
+
+    override fun write(b: ByteArray, off: Int, len: Int) = delegate.write(b, off, len)
+
+    override fun flush() = delegate.flush()
+
+    override fun close() {
+      if (closed) return
+      closed = true
+      try {
+        delegate.close()
+      } finally {
+        TransferProgressNotifier.onReceiveStreamClosed(name)
+      }
+    }
   }
 
   @Throws(IOException::class)

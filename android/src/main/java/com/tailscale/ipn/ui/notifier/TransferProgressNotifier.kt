@@ -72,6 +72,9 @@ object TransferProgressNotifier {
   private var collectJob: Job? = null
   private var holdJob: Job? = null
   private var loggedKey: String? = null
+  // Writer-driven receive state; see onReceiveStreamOpened.
+  private var writerName: String? = null
+  private var writerSawBus = false
   private val activeKeys = mutableSetOf<String>()
   private val completedKeys = mutableSetOf<String>()
 
@@ -130,13 +133,60 @@ object TransferProgressNotifier {
   /** The most recent download, using the same active-then-finished rule as [pickOutgoing]. */
   private fun pickIncoming(files: List<Ipn.PartialFile>): Transfer? {
     val candidates = files.filterNot { InlineShare.matches(it.Name) }
+    if (candidates.any { it.Name == writerName }) {
+      writerSawBus = true
+    }
     val active = candidates.lastOrNull { it.Done != true }
     if (active != null) {
-      activeKeys += active.key()
       return active.toTransfer(Direction.RECEIVE, done = false)
     }
-    val finished = candidates.lastOrNull { it.Done == true && it.key() in activeKeys }
+    // A finished entry is not required to have been seen active first: a fast transfer (or a slow
+    // bus) can deliver only the final notification, and skipping it used to leave the user with no
+    // receiving notification at all. Go drops the entry right after this notify, so anything with
+    // Done=true here is a transfer that just ended.
+    val finished = candidates.lastOrNull { it.Done == true }
     return finished?.toTransfer(Direction.RECEIVE, done = true)
+  }
+
+  /**
+   * Called by ShareFileHelper when Go starts writing a received file. The bus notification that
+   * carries IncomingFiles can be missed entirely (a short transfer can start and finish before the
+   * watcher or the flow catches up), but this callback is the stream Go writes into, so it always
+   * fires. Post a placeholder now; the bus refines it with the declared size and the completion.
+   */
+  fun onReceiveStreamOpened(name: String) {
+    if (InlineShare.matches(name)) {
+      return
+    }
+    val busFile = Notifier.incomingFiles.value?.firstOrNull { it.Name == name }
+    writerName = name
+    writerSawBus = busFile != null
+    holdJob?.cancel()
+    holdJob = null
+    post(
+        Transfer(
+            "in-stream:$name",
+            name,
+            Direction.RECEIVE,
+            busFile?.Received ?: 0L,
+            busFile?.DeclaredSize ?: -1L,
+            done = false,
+        ),
+        complete = false,
+    )
+  }
+
+  /** The receive stream closed: withdraw the placeholder if the bus never reported this file. */
+  fun onReceiveStreamClosed(name: String) {
+    if (writerName != name) {
+      return
+    }
+    writerName = null
+    if (writerSawBus) {
+      // The bus owns the rest of this transfer: it still has to report the completion.
+      return
+    }
+    cancel()
   }
 
   private fun Ipn.OutgoingFile.key(): String = "out:${ID.ifEmpty { Name }}"
@@ -172,7 +222,11 @@ object TransferProgressNotifier {
           delay(HOLD_AFTER_COMPLETE_MS)
           cancel()
           activeKeys -= transfer.key
-          completedKeys -= transfer.key
+          // The key stays in completedKeys: a repeat of the same finished entry (the bus can emit it
+          // again) must not resurrect the card. Keys are per transfer, so this only grows slowly.
+          if (completedKeys.size > 64) {
+            completedKeys.clear()
+          }
         }
   }
 
