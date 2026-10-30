@@ -33,6 +33,7 @@ import com.tailscale.ipn.ui.model.Netmap
 import com.tailscale.ipn.ui.notifier.FavoritesManager
 import com.tailscale.ipn.ui.notifier.HealthNotifier
 import com.tailscale.ipn.ui.notifier.Notifier
+import com.tailscale.ipn.ui.notifier.TransferProgressNotifier
 import com.tailscale.ipn.ui.viewModel.AppViewModel
 import com.tailscale.ipn.ui.viewModel.AppViewModelFactory
 import com.tailscale.ipn.util.FeatureFlags
@@ -341,6 +342,7 @@ class App : UninitializedApp(), libtailscale.AppContext, ViewModelStoreOwner {
     ShareFileHelper.init(this, app, directFileRoot, applicationScope)
     Notifier.setApp(app)
     Notifier.start(applicationScope)
+    TransferProgressNotifier.start(this, applicationScope)
     try {
       syncAdBlockSettings()
       applyStoredAdBlockRules()
@@ -722,6 +724,7 @@ open class UninitializedApp : Application() {
     private const val IS_CLIENT_LOGGING_ENABLED_KEY = "isClientLoggingEnabled"
     private const val START_ON_BOOT_KEY = "startOnBoot"
     private const val HIDE_FROM_RECENTS_KEY = "hideFromRecents"
+    private const val LIVE_TRANSFER_NOTIFICATIONS_KEY = "liveTransferNotifications"
     private const val LAST_WANT_RUNNING_KEY = "lastWantRunning"
     private const val ADBLOCK_ENABLED_KEY = "adblockEnabled"
     private const val ADBLOCK_RULES_KEY = "adblockRules"
@@ -793,6 +796,19 @@ open class UninitializedApp : Application() {
   fun setHideFromRecentsEnabled(enabled: Boolean) {
     getUnencryptedPrefs().edit().putBoolean(HIDE_FROM_RECENTS_KEY, enabled).apply()
     hideFromRecents.value = enabled
+  }
+
+  /**
+   * Whether Taildrop transfers show a live progress notification (the Fluid Cloud / live update
+   * card on ColorOS). On by default; purely a presentation choice, so it lives with the plain
+   * preferences.
+   */
+  fun isLiveTransferNotificationEnabled(): Boolean {
+    return getUnencryptedPrefs().getBoolean(LIVE_TRANSFER_NOTIFICATIONS_KEY, true)
+  }
+
+  fun setLiveTransferNotificationEnabled(enabled: Boolean) {
+    getUnencryptedPrefs().edit().putBoolean(LIVE_TRANSFER_NOTIFICATIONS_KEY, enabled).apply()
   }
 
   /**

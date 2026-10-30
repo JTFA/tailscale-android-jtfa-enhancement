@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tailscale.ipn.R
 import com.tailscale.ipn.ui.model.Permissions
+import com.tailscale.ipn.ui.util.Lists
 import com.tailscale.ipn.ui.util.friendlyDirName
 import com.tailscale.ipn.ui.util.itemsWithDividers
 import com.tailscale.ipn.ui.viewModel.PermissionsViewModel
@@ -33,6 +34,8 @@ fun PermissionsView(
     permissionsViewModel: PermissionsViewModel = viewModel(),
 ) {
   val permissions = Permissions.withGrantedStatus
+  val liveTransferNotifications =
+      permissionsViewModel.liveTransferNotifications.collectAsState().value
 
   Scaffold(topBar = { Header(titleRes = R.string.permissions, onBack = backToSettings) }) {
       innerPadding ->
@@ -59,6 +62,17 @@ fun PermissionsView(
         )
       }
 
+      item { Lists.ItemDivider() }
+      item {
+        Setting.Switch(
+            R.string.live_transfer_notifications,
+            subtitle = stringResource(R.string.live_transfer_notifications_subtitle),
+            isOn = liveTransferNotifications,
+            onToggle = { permissionsViewModel.toggleLiveTransferNotifications(it) },
+        )
+      }
+
+      item { Lists.ItemDivider() }
       item {
         ListItem(
             modifier = Modifier.clickable { navToTaildropDirView() },

@@ -397,6 +397,16 @@
     <string name="taildrop_dismiss">Dismiss</string>
     <string name="taildrop_open_folder">Open Taildrop folder</string>
 
+    <!-- Strings for the live transfer progress notification (Android live updates / ColorOS Fluid Cloud) -->
+    <string name="live_transfer_notifications">Live transfer notifications</string>
+    <string name="live_transfer_notifications_subtitle">Show Taildrop progress in the status bar and on the lock screen</string>
+    <string name="transfer_sending">Sending file</string>
+    <string name="transfer_receiving">Receiving file</string>
+    <string name="transfer_complete">Transfer complete</string>
+    <string name="transfer_failed">Transfer failed</string>
+    <string name="transfer_progress">%1$d%% · %2$s of %3$s</string>
+    <string name="transfer_in_progress">Transferring…</string>
+
     <!-- Strings for Hardware Attestation MDM setting -->
     <string name="enable_hardware_attestation">Enable hardware attestation</string>
     <string name="use_hardware_backed_keys_to_bind_node_identity_to_the_device">Use hardware-backed keys to bind node identity to the device</string>
