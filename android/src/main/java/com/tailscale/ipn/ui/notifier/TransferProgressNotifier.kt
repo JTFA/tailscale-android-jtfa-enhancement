@@ -431,6 +431,7 @@ object TransferProgressNotifier {
         if (keep) {
           listOf(
               CardAction(R.string.transfer_open, openAction),
+              CardAction(R.string.transfer_folder, openFolderIntent(context, transfer.name)),
               CardAction(R.string.transfer_close, closeIntent(context)),
           )
         } else {
@@ -569,6 +570,25 @@ object TransferProgressNotifier {
           "live update: promotable=${notification.hasPromotableCharacteristics()} " +
               "allowed=${manager?.canPostPromotedNotifications()}")
     }
+  }
+
+  /**
+   * Opens the folder the file landed in, through the same trampoline as Open. Whether a file manager
+   * on the device accepts a folder at all is its own business: the activity reports back if none
+   * does.
+   */
+  private fun openFolderIntent(context: Context, name: String): PendingIntent {
+    val intent =
+        Intent(context, OpenReceivedFileActivity::class.java)
+            .putExtra(LiveTransferActionReceiver.EXTRA_NAME, name)
+            .putExtra(OpenReceivedFileActivity.EXTRA_FOLDER, true)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return PendingIntent.getActivity(
+        context,
+        NOTIFICATION_ID + 2,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
   }
 
   /**

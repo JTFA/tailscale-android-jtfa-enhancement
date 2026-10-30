@@ -407,7 +407,10 @@
     <string name="transfer_received">Received</string>
     <string name="transfer_open">Open</string>
     <string name="transfer_close">Close</string>
+    <string name="transfer_folder">Folder</string>
     <string name="transfer_file_missing">File not found</string>
+    <string name="transfer_no_app">No app can open this file</string>
+    <string name="transfer_no_file_manager">No file manager found for this folder</string>
     <string name="keep_received_notification">Keep received notification</string>
     <string name="keep_received_notification_subtitle">At 100%, keep the card showing Received with Open and Close instead of dismissing it</string>
     <string name="transfer_progress">%1$d%% · %2$s of %3$s</string>
