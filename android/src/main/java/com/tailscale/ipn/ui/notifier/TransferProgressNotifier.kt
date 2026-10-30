@@ -22,6 +22,7 @@ import com.tailscale.ipn.LiveTransferActionReceiver
 import com.tailscale.ipn.R
 import com.tailscale.ipn.ui.model.Ipn
 import com.tailscale.ipn.util.InlineShare
+import com.tailscale.ipn.util.ShareFileHelper
 import com.tailscale.ipn.util.TSLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -60,7 +61,7 @@ object TransferProgressNotifier {
   // release that understands it.
   private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
   // A Taildrop sender's node id, as Go appends it to a partial file name: "n12345CNTRL".
-  private val NODE_ID = Regex("^n[0-9]+[A-Za-z0-9]+$")
+  private val NODE_ID = Regex("^n[0-9A-Za-z]{1,32}$")
 
   private enum class Direction {
     SEND,
@@ -101,6 +102,8 @@ object TransferProgressNotifier {
   private var writerName: String? = null
   private var writerTransfer: Transfer? = null
   private var lastCompletedReceive: Transfer? = null
+  // Final URI per received file, filled in by the rename callback.
+  private val receivedUris = mutableMapOf<String, String>()
   // Names whose receive card the writer stream already finished, so a later bus message about the
   // same transfer does not post the completion twice.
   private val completedReceiveNames = mutableSetOf<String>()
@@ -144,6 +147,7 @@ object TransferProgressNotifier {
     NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
   }
 
+  /** The user pressed Close on a kept "Received" card. */
   /** The user pressed Close on a kept "Received" card. */
   fun onCloseAction() {
     holdJob?.cancel()
@@ -242,39 +246,55 @@ object TransferProgressNotifier {
     if (!completedKeys.add(done.key)) {
       return
     }
-    post(done, complete = true)
-    scheduleHold(done.key)
+    if (!post(done, complete = true)) {
+      scheduleHold(done.key)
+    }
   }
 
   /**
-   * Go renamed the received file into place, so its final URI is known. Returns true when the
-   * finished card took over the standard "file received" notification.
+   * Go renamed the received file into place, so its final URI is known. Whatever is on screen is
+   * refreshed with it; the caller can ask [handlesReceivedNotification] whether the standard
+   * "file received" notification is redundant.
    */
-  fun onReceiveCompleted(name: String, uri: Uri): Boolean {
-    if (InlineShare.matches(name)) {
-      return false
+  fun onReceiveCompleted(name: String, uri: Uri) {
+    receivedUris[name] = uri.toString()
+    if (receivedUris.size > 64) {
+      receivedUris.clear()
     }
-    val context = appContext ?: return false
-    val completed =
-        lastCompletedReceive?.takeIf { it.name == name }
-            ?: run {
-              TSLog.d(TAG, "no live card for finished receive $name")
-              return false
-            }
-    if (!canPost(context)) {
-      return false
+    val last = lastCompletedReceive
+    if (last == null || !sameReceive(last.name, name)) {
+      TSLog.d(TAG, "finished receive $name has no live card")
+      return
     }
-    if (!App.get().isKeepReceivedTransferNotificationEnabled()) {
-      // Not keeping it: give the card the open intent for the seconds it is still on screen.
-      post(completed, complete = true, openUri = uri)
-      return false
-    }
-    // Keep the card up as "Received" until the user closes it.
-    holdJob?.cancel()
-    holdJob = null
-    post(completed, complete = true, openUri = uri, keep = true)
-    return true
+    // The rename knows the real name, which beats whatever the writer name suggested.
+    lastCompletedReceive = last.copy(name = name)
+    post(lastCompletedReceive!!, complete = true)
   }
+
+  /**
+   * Whether the live card speaks for a finished receive, in which case the standard "file received"
+   * notification would only say the same thing twice. Answered from the setting rather than from
+   * whatever happens to be on screen: a transfer that finishes before the watcher catches up still
+   * gets its card, and the two notifications must not race for the same file.
+   */
+  fun handlesReceivedNotification(): Boolean {
+    val context = appContext ?: return false
+    return App.get().isKeepReceivedTransferNotificationEnabled() && canPost(context)
+  }
+
+  /** The file a kept card's Open action or tap should launch. */
+  fun openUriFor(name: String): Uri? {
+    receivedUris[name]?.let {
+      return Uri.parse(it)
+    }
+    // The rename callback may not have arrived (or the app may have been restarted since), so ask
+    // the SAF directory for the file by name as a fallback.
+    return runCatching { Uri.parse(ShareFileHelper.getFileURI(name)) }.getOrNull()
+  }
+
+  /** True when [a] and [b] name the same received file, allowing for the writer's partial suffix. */
+  private fun sameReceive(a: String, b: String): Boolean =
+      a == b || a.startsWith("$b.") || b.startsWith("$a.")
 
   /**
    * Go names the writer after the partial file it writes into ("name.partial", or
@@ -329,8 +349,9 @@ object TransferProgressNotifier {
     if (!completedKeys.add(transfer.key)) {
       return
     }
-    post(transfer, complete = true)
-    scheduleHold(transfer.key)
+    if (!post(transfer, complete = true)) {
+      scheduleHold(transfer.key)
+    }
   }
 
   private fun scheduleHold(key: String) {
@@ -348,17 +369,26 @@ object TransferProgressNotifier {
         }
   }
 
-  private fun post(
-      transfer: Transfer,
-      complete: Boolean,
-      openUri: Uri? = null,
-      keep: Boolean = false,
-  ) {
-    val context = appContext ?: return
+  private fun post(transfer: Transfer, complete: Boolean): Boolean {
+    val context = appContext ?: return false
     if (!canPost(context)) {
-      return
+      return false
     }
 
+    // A finished receive stays on screen as a "Received" card when the user asked for that. It is
+    // decided here rather than by the rename callback: whichever path reports the completion (the
+    // write stream or the bus) has to end up with the same card.
+    val keep =
+        complete &&
+            !transfer.failed &&
+            transfer.direction == Direction.RECEIVE &&
+            App.get().isKeepReceivedTransferNotificationEnabled()
+    val openUri =
+        if (complete && !transfer.failed && transfer.direction == Direction.RECEIVE) {
+          openUriFor(transfer.name)
+        } else {
+          null
+        }
     val percent =
         when {
           // A finished, unfailed transfer is 100% even when the sender never declared a size.
@@ -385,10 +415,13 @@ object TransferProgressNotifier {
               )
           else -> context.getString(R.string.transfer_in_progress)
         }
+    // Open prefers the exact URI the rename produced; before that arrives it resolves the file by
+    // name when tapped, so the card is never left with a dead button.
+    val openAction = openUri?.let { openFileIntent(context, it) } ?: openByNameIntent(context, transfer.name)
     val actions =
-        if (keep && openUri != null) {
+        if (keep) {
           listOf(
-              CardAction(R.string.transfer_open, openFileIntent(context, openUri)),
+              CardAction(R.string.transfer_open, openAction),
               CardAction(R.string.transfer_close, closeIntent(context)),
           )
         } else {
@@ -399,8 +432,9 @@ object TransferProgressNotifier {
             title = title,
             text = text,
             percent = percent,
-            // Nothing opens while bytes move, and a send never has a local file to open.
-            tap = openUri?.let { openFileIntent(context, it) },
+            // Nothing opens while bytes move, and a send never has a local file to open. A finished
+            // receive opens the file, however late its URI became known.
+            tap = if (complete && !transfer.failed && transfer.direction == Direction.RECEIVE) openAction else null,
             actions = actions,
             chipText = if (percent >= 0) "$percent%" else null,
         )
@@ -413,6 +447,11 @@ object TransferProgressNotifier {
         }
     logPromotionState(context, notification, transfer.key)
     NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+    if (keep) {
+      holdJob?.cancel()
+      holdJob = null
+    }
+    return keep
   }
 
   @androidx.annotation.RequiresApi(Build.VERSION_CODES.BAKLAVA)
@@ -515,9 +554,25 @@ object TransferProgressNotifier {
     )
   }
 
-  /** Removes a kept card, see [onCloseAction]. */
-  private fun closeIntent(context: Context): PendingIntent {
+  /**
+   * Opens a received file by name, for the moment when the card exists but the rename has not
+   * reported the final URI yet. Resolving on tap keeps the button working whenever it is pressed.
+   */
+  private fun openByNameIntent(context: Context, name: String): PendingIntent {
     val intent =
+        Intent(context, LiveTransferActionReceiver::class.java)
+            .setAction(LiveTransferActionReceiver.ACTION_OPEN)
+            .putExtra(LiveTransferActionReceiver.EXTRA_NAME, name)
+    return PendingIntent.getBroadcast(
+        context,
+        NOTIFICATION_ID + 1,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+  }
+
+  /** Removes a kept card, see [onCloseAction]. */
+  private fun closeIntent(context: Context): PendingIntent {    val intent =
         Intent(context, LiveTransferActionReceiver::class.java)
             .setAction(LiveTransferActionReceiver.ACTION_CLOSE)
     return PendingIntent.getBroadcast(

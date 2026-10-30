@@ -264,11 +264,11 @@ object ShareFileHelper : libtailscale.ShareFileHelper {
   private fun maybeNotifyReceivedFile(ctx: Context, uri: String, targetName: String) {
     if (InlineShare.matches(targetName)) return
     val parsed = runCatching { Uri.parse(uri) }.getOrNull() ?: return
-    // The live transfer card is still up: it turns into "Received" with Open and Close, which is a
-    // better record than a second notification for the same file. Without that, fall through to the
-    // standard notification as before.
-    val takenOver = TransferProgressNotifier.onReceiveCompleted(targetName, parsed)
-    if (takenOver) return
+    // Hands the final URI to the live card, which may have posted before the rename.
+    TransferProgressNotifier.onReceiveCompleted(targetName, parsed)
+    // While the card keeps finished receives on screen it is the record of this file, so a second
+    // notification about the same file would only be noise.
+    if (TransferProgressNotifier.handlesReceivedNotification()) return
     TaildropNotifier.notifyFile(ctx, parsed, targetName)
   }
 
