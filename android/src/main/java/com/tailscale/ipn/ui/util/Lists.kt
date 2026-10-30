@@ -19,6 +19,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+
+/**
+ * Background for section headers. Null means the usual opaque surface; a screen that draws its own
+ * translucent background (the share sheet's frosted card) sets it to Color.Transparent so its
+ * headers do not punch opaque bars into it.
+ */
+val LocalSectionHeaderBackground = compositionLocalOf<Color?> { null }
 
 object Lists {
   @Composable
@@ -57,7 +65,11 @@ object Lists {
   ) {
     Box(
         modifier =
-            Modifier.fillMaxWidth().background(color = backgroundColor, shape = RectangleShape)
+            Modifier.fillMaxWidth()
+                .background(
+                    color = LocalSectionHeaderBackground.current ?: backgroundColor,
+                    shape = RectangleShape,
+                )
     ) {
       Row(
           modifier =
@@ -82,7 +94,11 @@ object Lists {
     Box(
         modifier =
             Modifier.fillMaxWidth()
-                .background(color = MaterialTheme.colorScheme.surface, shape = RectangleShape)
+                .background(
+                    color = LocalSectionHeaderBackground.current
+                        ?: MaterialTheme.colorScheme.surface,
+                    shape = RectangleShape,
+                )
     ) {
       Text(
           modifier = Modifier.padding(start = 16.dp, top = 16.dp),

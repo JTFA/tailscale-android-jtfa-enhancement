@@ -105,7 +105,9 @@ class ShareSheetDialog(
     window.decorView.post {
       val height = window.decorView.height
       if (height > 0 && !closing) {
-        slide(from = height, to = 0, duration = SLIDE_IN_MS)
+        // With gravity BOTTOM, a positive y moves the window up; a negative one moves it below the
+        // bottom edge, which is where the card comes from.
+        slide(from = -height, to = 0, duration = SLIDE_IN_MS)
       }
     }
   }
@@ -125,7 +127,7 @@ class ShareSheetDialog(
       onClosed()
       return
     }
-    slide(from = 0, to = height, duration = SLIDE_OUT_MS) {
+    slide(from = 0, to = -height, duration = SLIDE_OUT_MS) {
       dismiss()
       onClosed()
     }
