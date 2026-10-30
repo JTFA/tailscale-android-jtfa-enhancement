@@ -59,6 +59,8 @@ object TransferProgressNotifier {
   // but the request itself is just an extra, which compiles against API 36 and is honored on any
   // release that understands it.
   private const val EXTRA_REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing"
+  // A Taildrop sender's node id, as Go appends it to a partial file name: "n12345CNTRL".
+  private val NODE_ID = Regex("^n[0-9]+[A-Za-z0-9]+$")
 
   private enum class Direction {
     SEND,
@@ -189,16 +191,17 @@ object TransferProgressNotifier {
    * [onReceiveStreamClosed] turns it into the completion.
    */
   fun onReceiveStreamOpened(name: String) {
-    if (InlineShare.matches(name)) {
+    val baseName = baseNameOf(name)
+    if (InlineShare.matches(baseName)) {
       return
     }
-    val busFile = Notifier.incomingFiles.value?.firstOrNull { it.Name == name }
+    val busFile = Notifier.incomingFiles.value?.lastOrNull { it.Name == baseName }
     writerName = name
-    completedReceiveNames -= name
+    completedReceiveNames -= baseName
     val transfer =
         Transfer(
             "in-stream:$name",
-            name,
+            baseName,
             Direction.RECEIVE,
             busFile?.Received ?: 0L,
             busFile?.DeclaredSize ?: -1L,
@@ -223,7 +226,8 @@ object TransferProgressNotifier {
     writerName = null
     val placeholder = writerTransfer ?: return
     writerTransfer = null
-    completedReceiveNames += name
+    // Keyed by the visible name: bus entries and Rename both use it, the writer name does not.
+    completedReceiveNames += placeholder.name
     if (completedReceiveNames.size > 64) {
       completedReceiveNames.clear()
     }
@@ -251,7 +255,12 @@ object TransferProgressNotifier {
       return false
     }
     val context = appContext ?: return false
-    val completed = lastCompletedReceive?.takeIf { it.name == name } ?: return false
+    val completed =
+        lastCompletedReceive?.takeIf { it.name == name }
+            ?: run {
+              TSLog.d(TAG, "no live card for finished receive $name")
+              return false
+            }
     if (!canPost(context)) {
       return false
     }
@@ -265,6 +274,33 @@ object TransferProgressNotifier {
     holdJob = null
     post(completed, complete = true, openUri = uri, keep = true)
     return true
+  }
+
+  /**
+   * Go names the writer after the partial file it writes into ("name.partial", or
+   * "name.<clientID>.partial" when the sender has a node id) and only renames it to the bare name at
+   * the very end. Everything the bus and the rename report uses the bare name, so map back before
+   * comparing: the writer name never equals the finished file's name.
+   */
+  private fun baseNameOf(writerName: String): String {
+    if (!writerName.endsWith(".partial")) {
+      return writerName
+    }
+    Notifier.incomingFiles
+        .value
+        ?.map { it.Name }
+        ?.lastOrNull { writerName.startsWith("$it.") }
+        ?.let {
+          return it
+        }
+    // No bus entry to go on (a zero-byte or very short transfer never reports one): drop the
+    // suffix and the node id that precedes it, when what is left looks like a node id.
+    val stem = writerName.removeSuffix(".partial")
+    val dot = stem.lastIndexOf('.')
+    if (dot > 0 && NODE_ID.matches(stem.substring(dot + 1))) {
+      return stem.substring(0, dot)
+    }
+    return stem
   }
 
   private fun Ipn.OutgoingFile.key(): String = "out:${ID.ifEmpty { Name }}"
@@ -323,7 +359,12 @@ object TransferProgressNotifier {
       return
     }
 
-    val percent = percentOf(transfer)
+    val percent =
+        when {
+          // A finished, unfailed transfer is 100% even when the sender never declared a size.
+          complete && !transfer.failed -> 100
+          else -> percentOf(transfer)
+        }
     val title =
         when {
           keep -> context.getString(R.string.transfer_received)
