@@ -40,7 +40,7 @@ class LiveTransferActionReceiver : BroadcastReceiver() {
           addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     runCatching { context.startActivity(view) }
-        .onSuccess { TransferProgressNotifier.onCloseAction() }
+        .onSuccess { TransferProgressNotifier.onOpenAction() }
         .onFailure { TSLog.w("LiveTransferActionReceiver", "no app opened $name: $it") }
   }
 }

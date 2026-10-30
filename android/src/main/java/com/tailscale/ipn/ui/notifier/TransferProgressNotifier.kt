@@ -56,6 +56,9 @@ object TransferProgressNotifier {
   // A live update that vanishes the instant it hits 100% looks like a failed transfer, so the
   // finished state sits on screen for a moment before it is withdrawn.
   private const val HOLD_AFTER_COMPLETE_MS = 5_000L
+  // Long enough for the system's expand/app-open transition to play out before the card is
+  // withdrawn, short enough that the card is gone by the time the viewer is usable.
+  private const val OPEN_CLOSE_DELAY_MS = 900L
   // Request promotion into a live update. API 36.1 added Notification.Builder#requestPromotedOngoing,
   // but the request itself is just an extra, which compiles against API 36 and is honored on any
   // release that understands it.
@@ -154,6 +157,23 @@ object TransferProgressNotifier {
     holdJob = null
     lastCompletedReceive = null
     cancel()
+  }
+
+  /**
+   * The user pressed Open. The card is withdrawn only after the system has finished animating the
+   * app it launched into place; cancelling immediately pulls the card out from under that
+   * transition.
+   */
+  fun onOpenAction() {
+    val appScope = scope
+    if (appScope == null) {
+      onCloseAction()
+      return
+    }
+    appScope.launch {
+      delay(OPEN_CLOSE_DELAY_MS)
+      onCloseAction()
+    }
   }
 
   /**
@@ -383,12 +403,6 @@ object TransferProgressNotifier {
             !transfer.failed &&
             transfer.direction == Direction.RECEIVE &&
             App.get().isKeepReceivedTransferNotificationEnabled()
-    val openUri =
-        if (complete && !transfer.failed && transfer.direction == Direction.RECEIVE) {
-          openUriFor(transfer.name)
-        } else {
-          null
-        }
     val percent =
         when {
           // A finished, unfailed transfer is 100% even when the sender never declared a size.
@@ -415,9 +429,9 @@ object TransferProgressNotifier {
               )
           else -> context.getString(R.string.transfer_in_progress)
         }
-    // Open prefers the exact URI the rename produced; before that arrives it resolves the file by
-    // name when tapped, so the card is never left with a dead button.
-    val openAction = openUri?.let { openFileIntent(context, it) } ?: openByNameIntent(context, transfer.name)
+    // Open and tap both go through the receiver, which resolves the file when pressed and only
+    // withdraws the card once the app it launched has its window.
+    val openAction = openByNameIntent(context, transfer.name)
     val actions =
         if (keep) {
           listOf(
@@ -436,7 +450,14 @@ object TransferProgressNotifier {
             // receive opens the file, however late its URI became known.
             tap = if (complete && !transfer.failed && transfer.direction == Direction.RECEIVE) openAction else null,
             actions = actions,
-            chipText = if (percent >= 0) "$percent%" else null,
+            chipText =
+                when {
+                  // The chip is the whole card while it is collapsed, and "100%" there reads like a
+                  // transfer that never finished.
+                  keep -> context.getString(R.string.transfer_received)
+                  percent >= 0 -> "$percent%"
+                  else -> null
+                },
         )
 
     val notification =
@@ -538,25 +559,9 @@ object TransferProgressNotifier {
     }
   }
 
-  /** Opens the received file in whatever app handles its type. */
-  private fun openFileIntent(context: Context, uri: Uri): PendingIntent {
-    val mime = runCatching { context.contentResolver.getType(uri) }.getOrNull() ?: "*/*"
-    val intent =
-        Intent(Intent.ACTION_VIEW).apply {
-          setDataAndType(uri, mime)
-          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-    return PendingIntent.getActivity(
-        context,
-        NOTIFICATION_ID,
-        intent,
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
-  }
-
   /**
-   * Opens a received file by name, for the moment when the card exists but the rename has not
-   * reported the final URI yet. Resolving on tap keeps the button working whenever it is pressed.
+   * Opens a received file by name, resolved at press time: the card can appear before the rename
+   * reports the final URI, and the button has to work whenever it is pressed.
    */
   private fun openByNameIntent(context: Context, name: String): PendingIntent {
     val intent =
