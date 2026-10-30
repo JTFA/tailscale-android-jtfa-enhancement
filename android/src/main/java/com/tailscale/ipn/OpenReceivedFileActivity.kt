@@ -32,6 +32,17 @@ import java.io.File
 class OpenReceivedFileActivity : Activity() {
   companion object {
     const val EXTRA_FOLDER = "folder"
+
+    // AOSP Files (DocumentsUI), then the file managers shipped by the big Chinese ROMs.
+    private val FILE_MANAGERS =
+        listOf(
+            "com.android.documentsui",
+            "com.google.android.documentsui",
+            "com.coloros.filemanager",
+            "com.oplus.filemanager",
+            "com.android.fileexplorer",
+            "com.mi.android.globalFileexplorer",
+        )
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,17 +78,34 @@ class OpenReceivedFileActivity : Activity() {
   }
 
   /**
-   * The folder the file was received into, in the forms file managers are likely to accept: the SAF
-   * tree as a folder document, the same tree as a plain document, and finally the real path when the
-   * tree lives on shared storage (ColorOS's own file manager only understands that one).
+   * The folder the file was received into. File managers are addressed by package, one at a time:
+   * an implicit intent for a folder is understood by several apps on this ROM, so the system answers
+   * with a chooser instead of opening anything. The AOSP Files app (DocumentsUI) can open a folder
+   * document, which is the closest thing to "show me this folder" Android offers.
    */
   private fun folderIntents(): List<Intent> {
     val tree = TaildropDirectoryStore.loadSavedDir() ?: return emptyList()
-    val intents = mutableListOf<Intent>()
-    intents += view(tree, DocumentsContract.Document.MIME_TYPE_DIR)
-    intents += Intent(Intent.ACTION_VIEW).setData(tree)
-    documentPath(tree)?.let { intents += view(Uri.fromFile(File(it)), DocumentsContract.Document.MIME_TYPE_DIR) }
-    return intents
+    val out = mutableListOf<Intent>()
+    val dirDocument =
+        runCatching { DocumentsContract.getTreeDocumentId(tree) }
+            .getOrNull()
+            ?.let { id ->
+              runCatching { DocumentsContract.buildDocumentUriUsingTree(tree, id) }.getOrNull()
+            }
+    val uris = listOfNotNull(dirDocument, tree)
+    for (fileManager in FILE_MANAGERS) {
+      for (uri in uris) {
+        out += view(uri, DocumentsContract.Document.MIME_TYPE_DIR).setPackage(fileManager)
+      }
+    }
+    // Nothing answered yet: fall back to whoever wants it, chooser and all, then to a real path.
+    for (uri in uris) {
+      out += view(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+    }
+    documentPath(tree)?.let {
+      out += view(Uri.fromFile(File(it)), DocumentsContract.Document.MIME_TYPE_DIR)
+    }
+    return out
   }
 
   private fun view(uri: Uri, mime: String): Intent =
