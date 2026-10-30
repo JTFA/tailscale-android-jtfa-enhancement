@@ -190,6 +190,17 @@ object NetworkChangeCallback {
 
     if (newNetwork != oldNetwork) {
       underlyingNetworkListener?.invoke(newNetwork)
+      // fork: tailscaled only ever hears about a link change through
+      // Libtailscale.onDNSConfigChanged (Go: backend.NetworkChanged -> netmon.InjectEvent), and
+      // maybeUpdateDNSConfig() reaches that call only when the DNS text itself changed. A roaming
+      // Wi-Fi handover, a cell change or a Wi-Fi off/on that keeps the same resolvers therefore
+      // left magicsock bound to sockets on the network that just disappeared: the tunnel still
+      // looked connected while nothing could leave the device.
+      //
+      // Announce every default network change instead, with an empty name when there is no
+      // network left. The DNS call site stays as it is; a second event is harmless because Go
+      // buffers one and drops the duplicate, and netmon events are idempotent.
+      Libtailscale.onDNSConfigChanged(cachedDefaultInterfaceName ?: "")
       return true
     }
 
