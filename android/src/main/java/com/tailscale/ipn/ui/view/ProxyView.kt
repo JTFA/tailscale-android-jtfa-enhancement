@@ -489,7 +489,7 @@ private fun EgressDialog(onDismiss: () -> Unit) {
         }
       },
       confirmButton = {
-        TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) }
+        TextButton(onClick = onDismiss) { Text(stringResource(R.string.ok)) }
       },
   )
 }
@@ -536,11 +536,11 @@ private fun PortDialog(
             onClick = { if (valid) onSave(port!!) },
             enabled = valid,
         ) {
-          Text(stringResource(android.R.string.ok))
+          Text(stringResource(R.string.ok))
         }
       },
       dismissButton = {
-        TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+        TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
       },
   )
 }

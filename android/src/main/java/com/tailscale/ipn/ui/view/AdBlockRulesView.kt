@@ -422,7 +422,7 @@ private fun AddSourceDialog(
       },
       dismissButton = {
         TextButton(onClick = onDismiss) {
-          Text(stringResource(android.R.string.cancel))
+          Text(stringResource(R.string.cancel))
         }
       },
   )
