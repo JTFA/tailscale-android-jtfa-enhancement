@@ -34,6 +34,18 @@
         android:name="android.hardware.touchscreen"
         android:required="false" />
 
+    <!-- File managers and viewers the received-file actions look for on Android 11+. -->
+    <queries>
+        <package android:name="com.coloros.filemanager" />
+        <package android:name="com.oplus.filemanager" />
+        <package android:name="com.android.documentsui" />
+        <package android:name="com.google.android.documentsui" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="false"

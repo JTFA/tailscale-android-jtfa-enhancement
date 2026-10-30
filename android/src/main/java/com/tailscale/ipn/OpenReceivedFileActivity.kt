@@ -38,6 +38,9 @@ class OpenReceivedFileActivity : Activity() {
     private val OPPO_FILE_MANAGERS = listOf("com.coloros.filemanager", "com.oplus.filemanager")
     private val AOSP_FILE_MANAGERS =
         listOf("com.android.documentsui", "com.google.android.documentsui")
+    private val FOLDER_MIMES =
+        listOf("resource/folder", DocumentsContract.Document.MIME_TYPE_DIR, "*/*")
+    private const val EXTRA_ABSOLUTE_PATH = "org.openintents.extra.ABSOLUTE_PATH"
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,7 +100,8 @@ class OpenReceivedFileActivity : Activity() {
   /**
    * The folder the file was received into. The phone maker's own file manager is asked first, then
    * the AOSP one, and each is given the folder as a document inside the tree and as a real path,
-   * since they disagree about which one they understand.
+   * since they disagree about which one they understand. Both folder MIME types are tried: the
+   * documents one is what the SAF world uses, "resource/folder" is what most file managers match.
    */
   private fun folderIntents(): List<Intent> {
     val tree = TaildropDirectoryStore.loadSavedDir() ?: return emptyList()
@@ -108,18 +112,40 @@ class OpenReceivedFileActivity : Activity() {
             ?.let { id ->
               runCatching { DocumentsContract.buildDocumentUriUsingTree(tree, id) }.getOrNull()
             }
-    val uris = listOfNotNull(dirDocument, tree, documentPath(tree)?.let { Uri.fromFile(File(it)) })
-    for (fileManager in fileManagerOrder()) {
+    val path = documentPath(tree)
+    val uris = listOfNotNull(dirDocument, tree, path?.let { Uri.fromFile(File(it)) })
+    val order = fileManagerOrder()
+    // Specific folder types first, so a real folder view wins over an app that merely accepts
+    // anything.
+    for (mime in listOf("resource/folder", DocumentsContract.Document.MIME_TYPE_DIR)) {
+      for (fileManager in order) {
+        for (uri in uris) {
+          out += folderView(uri, mime, path).setPackage(fileManager)
+        }
+      }
+    }
+    // The maker's app may only accept anything at all: opening the app beats opening nothing.
+    for (fileManager in order) {
       for (uri in uris) {
-        out += view(uri, DocumentsContract.Document.MIME_TYPE_DIR).setPackage(fileManager)
+        out += folderView(uri, "*/*", path).setPackage(fileManager)
       }
     }
     // Nothing answered yet: fall back to whoever wants it, chooser and all.
-    for (uri in uris) {
-      out += view(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+    for (mime in FOLDER_MIMES) {
+      for (uri in uris) {
+        out += folderView(uri, mime, path)
+      }
     }
     return out
   }
+
+  private fun folderView(uri: Uri, mime: String, path: String?): Intent =
+      view(uri, mime).apply {
+        // OI/ES/Solid and friends look the directory up here as well as in the data URI.
+        if (path != null) {
+          putExtra(EXTRA_ABSOLUTE_PATH, path)
+        }
+      }
 
   /** The file manager this phone is likely to have first, then the AOSP one as the safety net. */
   private fun fileManagerOrder(): List<String> {
