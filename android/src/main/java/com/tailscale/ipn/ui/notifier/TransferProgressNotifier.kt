@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.tailscale.ipn.App
 import com.tailscale.ipn.LiveTransferActionReceiver
+import com.tailscale.ipn.OpenReceivedFileActivity
 import com.tailscale.ipn.R
 import com.tailscale.ipn.ui.model.Ipn
 import com.tailscale.ipn.util.InlineShare
@@ -560,15 +561,15 @@ object TransferProgressNotifier {
   }
 
   /**
-   * Opens a received file by name, resolved at press time: the card can appear before the rename
-   * reports the final URI, and the button has to work whenever it is pressed.
+   * Opens a received file and takes the card down afterwards. Resolved at press time, since the
+   * card can appear before the rename reports the final URI.
    */
   private fun openByNameIntent(context: Context, name: String): PendingIntent {
     val intent =
-        Intent(context, LiveTransferActionReceiver::class.java)
-            .setAction(LiveTransferActionReceiver.ACTION_OPEN)
+        Intent(context, OpenReceivedFileActivity::class.java)
             .putExtra(LiveTransferActionReceiver.EXTRA_NAME, name)
-    return PendingIntent.getBroadcast(
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return PendingIntent.getActivity(
         context,
         NOTIFICATION_ID + 1,
         intent,

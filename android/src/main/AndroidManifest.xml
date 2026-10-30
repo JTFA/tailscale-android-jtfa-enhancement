@@ -130,6 +130,14 @@
             android:name=".LiveTransferActionReceiver"
             android:exported="false" />
 
+        <activity
+            android:name=".OpenReceivedFileActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <receiver
             android:name=".MDMSettingsChangedReceiver"
             android:exported="false">
