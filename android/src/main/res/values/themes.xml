@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The share sheet is a translucent window rather than a full-screen page: the app that started
+      the share stays visible behind it, and the sheet draws its own scrim over everything, status
+      bar included. Nothing else about the activity changes.
+    -->
+    <style name="Theme.TSShareSheet" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>

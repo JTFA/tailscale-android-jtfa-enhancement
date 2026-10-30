@@ -250,6 +250,7 @@
 
     <!-- Strings for the share activity -->
     <string name="share">Send with Taildrop</string>
+    <string name="share_sending">Sending %1$s</string>
     <string name="share_device_not_connected">Unable to share files with this device. This device is not currently connected to the tailnet.</string>
     <string name="no_files_to_share">No files to share</string>
     <string name="file_count">%1$s files</string>
@@ -405,6 +406,7 @@
     <string name="transfer_complete">Transfer complete</string>
     <string name="transfer_failed">Transfer failed</string>
     <string name="transfer_received">Received</string>
+    <string name="transfer_sent">Sent</string>
     <string name="transfer_open">Open</string>
     <string name="transfer_close">Close</string>
     <string name="transfer_folder">Folder</string>

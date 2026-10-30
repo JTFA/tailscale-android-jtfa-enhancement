@@ -404,15 +404,19 @@ object TransferProgressNotifier {
           complete && !transfer.failed -> 100
           else -> percentOf(transfer)
         }
+    // A finished send says so, the way a finished receive does: "100%" on a card that is about to
+    // disappear reads like a transfer that never ended.
+    val sent = complete && !transfer.failed && transfer.direction == Direction.SEND
     val title =
         when {
           keep -> context.getString(R.string.transfer_received)
+          sent -> context.getString(R.string.transfer_sent)
           transfer.direction == Direction.SEND -> context.getString(R.string.transfer_sending)
           else -> context.getString(R.string.transfer_receiving)
         }
     val text =
         when {
-          keep -> transfer.name
+          keep || sent -> transfer.name
           transfer.failed -> context.getString(R.string.transfer_failed)
           complete -> context.getString(R.string.transfer_complete)
           percent >= 0 ->
@@ -451,6 +455,7 @@ object TransferProgressNotifier {
                   // The chip is the whole card while it is collapsed, and "100%" there reads like a
                   // transfer that never finished.
                   keep -> context.getString(R.string.transfer_received)
+                  sent -> context.getString(R.string.transfer_sent)
                   percent >= 0 -> "$percent%"
                   else -> null
                 },

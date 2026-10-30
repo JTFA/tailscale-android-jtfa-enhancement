@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,6 +49,9 @@ import kotlinx.coroutines.flow.StateFlow
 fun TaildropView(
     requestedTransfers: StateFlow<List<Ipn.OutgoingFile>>,
     applicationScope: CoroutineScope,
+    // Called once a device accepted the share, so the sheet can step out of the way; the transfer
+    // itself is reported by the live transfer notification from here on.
+    onShareStarted: () -> Unit = {},
     viewModel: TaildropViewModel =
         viewModel(factory = TaildropViewModelFactory(requestedTransfers, applicationScope)),
 ) {
@@ -83,7 +86,7 @@ fun TaildropView(
             recent = recent,
             other = other,
             stateViewGenerator = { peerId -> viewModel.TrailingContentForPeer(peerId = peerId) },
-            onShare = { viewModel.share(context, it) },
+            onShare = { peer -> if (viewModel.share(context, peer)) onShareStarted() },
         )
       }
       else -> {
@@ -103,7 +106,7 @@ fun FileSharePeerList(
   if (recent.isEmpty() && other.isEmpty()) {
     SectionDivider(stringResource(R.string.my_devices))
     Column(
-        modifier = Modifier.padding(horizontal = 8.dp).fillMaxHeight(),
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = 40.dp).fillMaxWidth(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -144,7 +147,7 @@ private fun PeerRow(
 @Composable
 fun FileShareConnectView(onToggle: () -> Unit) {
   Column(
-      modifier = Modifier.padding(horizontal = 16.dp).fillMaxHeight(),
+      modifier = Modifier.padding(horizontal = 16.dp, vertical = 40.dp).fillMaxWidth(),
       verticalArrangement = Arrangement.spacedBy(6.dp, alignment = Alignment.CenterVertically),
       horizontalAlignment = Alignment.CenterHorizontally,
   ) {

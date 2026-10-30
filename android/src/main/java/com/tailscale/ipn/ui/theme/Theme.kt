@@ -27,7 +27,13 @@ import androidx.compose.ui.unit.sp
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 
 @Composable
-fun AppTheme(useDarkTheme: Boolean = isSystemInDarkTheme(), content: @Composable() () -> Unit) {
+fun AppTheme(
+    useDarkTheme: Boolean = isSystemInDarkTheme(),
+    // A translucent window, like the share sheet, keeps the system bars of the app behind it and
+    // paints its own scrim over them.
+    setSystemBars: Boolean = true,
+    content: @Composable() () -> Unit,
+) {
   val colors =
       if (useDarkTheme) {
         DarkColors
@@ -48,9 +54,11 @@ fun AppTheme(useDarkTheme: Boolean = isSystemInDarkTheme(), content: @Composable
   // TODO: Migrate to Activity.enableEdgeToEdge
   @Suppress("deprecation") val systemUiController = rememberSystemUiController()
 
-  DisposableEffect(systemUiController, useDarkTheme) {
-    systemUiController.setStatusBarColor(color = colors.surfaceContainer)
-    systemUiController.setNavigationBarColor(color = Color.Black)
+  DisposableEffect(systemUiController, useDarkTheme, setSystemBars) {
+    if (setSystemBars) {
+      systemUiController.setStatusBarColor(color = colors.surfaceContainer)
+      systemUiController.setNavigationBarColor(color = Color.Black)
+    }
     onDispose {}
   }
 

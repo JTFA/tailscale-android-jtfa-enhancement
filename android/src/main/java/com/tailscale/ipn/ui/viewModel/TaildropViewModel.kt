@@ -4,6 +4,7 @@
 package com.tailscale.ipn.ui.viewModel
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.MaterialTheme
@@ -196,16 +197,18 @@ class TaildropViewModel(
   }
 
   // Commences the file transfer to the specified node iff
-  fun share(context: Context, node: Tailcfg.Node) {
+  // Returns true once the transfer has been handed to the local API, so the share sheet can close
+  // and leave the progress to the live transfer notification.
+  fun share(context: Context, node: Tailcfg.Node): Boolean {
     if (node.Online != true) {
       showDialog.set(ErrorDialogType.SHARE_DEVICE_NOT_CONNECTED)
-      return
+      return false
     }
 
     // Gate on an actually-in-flight transfer rather than a one-shot selection
     // set, since requestedTransfers may not re-emit on a new intent when the
     // share content hashes identically.
-    if (transfers.value.any { it.PeerID == node.StableID && !it.Finished }) return
+    if (transfers.value.any { it.PeerID == node.StableID && !it.Finished }) return false
 
     val preparedTransfers = requestedTransfers.value.map { it.prepare(node.StableID) }
     currentTransferIDs.set(currentTransferIDs.value + preparedTransfers.map { it.ID })
@@ -213,10 +216,14 @@ class TaildropViewModel(
     Client(applicationScope).putTaildropFiles(context, node.StableID, preparedTransfers) {
       if (it.isFailure) {
         showDialog.set(ErrorDialogType.SHARE_FAILED)
+        // The sheet is gone by the time the API answers, so a dialog here would go unseen.
+        Toast.makeText(context.applicationContext, R.string.taildrop_share_failed, Toast.LENGTH_LONG)
+            .show()
       } else {
         val userID = Notifier.netmap.value?.SelfNode?.User ?: 0L
         TaildropUsageTracker.updateLastUsed(context, userID, node.StableID)
       }
     }
+    return true
   }
 }
